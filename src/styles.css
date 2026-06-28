@@ -531,10 +531,6 @@ button:hover {
     min-width: 0;
   }
 
-  .menu span:nth-last-child(n + 7) {
-    display: none;
-  }
-
   .app-grid {
     grid-template-columns: 44px minmax(0, 1fr) minmax(300px, 35vw);
   }
