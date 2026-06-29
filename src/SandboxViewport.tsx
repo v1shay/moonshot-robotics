@@ -519,15 +519,15 @@ function smoothStep(t: number) {
 }
 
 const roverRoutePoints = [
-  new THREE.Vector3(-1.8, 0, 1.28),
-  new THREE.Vector3(-1.1, 0, 0.34),
-  new THREE.Vector3(-0.46, 0, -0.9),
-  new THREE.Vector3(0.28, 0, -0.28),
-  new THREE.Vector3(1.05, 0, -1.06),
-  new THREE.Vector3(1.72, 0, -0.1),
-  new THREE.Vector3(1.08, 0, 0.92),
-  new THREE.Vector3(0.18, 0, 0.42),
-  new THREE.Vector3(-0.72, 0, 1.08),
+  new THREE.Vector3(-2.12, 0, 1.26),
+  new THREE.Vector3(-1.42, 0, 0.44),
+  new THREE.Vector3(-0.62, 0, -1.06),
+  new THREE.Vector3(0.32, 0, -0.28),
+  new THREE.Vector3(1.22, 0, -1.08),
+  new THREE.Vector3(2.05, 0, -0.08),
+  new THREE.Vector3(1.1, 0, 1.05),
+  new THREE.Vector3(0.18, 0, 0.34),
+  new THREE.Vector3(-0.84, 0, 1.14),
 ];
 
 function getRoverPose(time: number, startedAt: number, baseY: number) {
@@ -620,10 +620,10 @@ async function createNovaCarterAssembly(scene: THREE.Scene, assemblyMeshes: Asse
       const pose = getRoverPose(time, startedAt, baseY);
       const previous = root.userData.previousPathPosition as THREE.Vector3 | undefined;
       root.position.copy(pose.position);
-      root.rotation.set(-Math.PI / 2, 0, pose.heading);
+      root.rotation.set(-Math.PI / 2, 0, pose.heading - Math.PI / 2);
       const distance = previous ? pose.position.distanceTo(previous) : 0.015;
-      leftWheel.rotation.z += distance * 13;
-      rightWheel.rotation.z += distance * 13;
+      leftWheel.rotation.z -= distance * 13;
+      rightWheel.rotation.z -= distance * 13;
       root.userData.previousPathPosition = pose.position.clone();
     };
   }
@@ -652,12 +652,15 @@ type MujocoModel = {
 
 async function createUnitreeG1Assembly(scene: THREE.Scene, assemblyMeshes: AssemblyMesh[], startedAt: number, training = false) {
   const model = await loadMujocoModel("/assets/unitree_g1", "g1_with_hands.xml", training ? 2.7 : 2.35);
-  if (training) model.group.position.set(-0.25, 0, 0.85);
+  if (training) {
+    model.group.position.set(-0.36, 0, 0.64);
+    model.group.userData.trainingBasePosition = model.group.position.clone();
+  }
   model.group.userData.animate = (time: number) => {
-    animateUnitreeG1(model.namedBodies, time, training, startedAt);
+    animateUnitreeG1(model.namedBodies, time, training, startedAt, model.group);
   };
   scene.add(model.group);
-  scheduleMujocoReveal(model, assemblyMeshes, startedAt, 0.035);
+  scheduleMujocoReveal(model, assemblyMeshes, startedAt, training ? 0.065 : 0.052);
 }
 
 async function createFrankaPandaAssembly(
@@ -667,7 +670,7 @@ async function createFrankaPandaAssembly(
   training: boolean,
 ) {
   const model = await loadMujocoModel("/assets/franka_emika_panda", "panda.xml", 3.35);
-  model.group.position.set(0.2, 0, 0.26);
+  model.group.position.set(training ? -0.02 : 0.2, training ? 0.31 : 0, 0.22);
   model.group.userData.animate = (time: number) => {
     animateFrankaPanda(model.namedBodies, time, training);
   };
@@ -723,29 +726,32 @@ async function createTrainingDemoScene(
   const entries =
     model === "desktop"
       ? [
-          { file: "robotic-arm-trash-picking/blue_recycling_bin_detailed.stl", position: new THREE.Vector3(-0.18, 0.3, -0.36), size: 0.34, color: "#2367a8", rotation: new THREE.Euler(-Math.PI / 2, 0, 0.08) },
-          { file: "robotic-arm-trash-picking/green_compost_bin_detailed.stl", position: new THREE.Vector3(0.24, 0.3, -0.42), size: 0.34, color: "#3f8c50", rotation: new THREE.Euler(-Math.PI / 2, 0, 0) },
-          { file: "robotic-arm-trash-picking/black_trash_bin_detailed.stl", position: new THREE.Vector3(0.66, 0.3, -0.36), size: 0.34, color: "#15191b", rotation: new THREE.Euler(-Math.PI / 2, 0, -0.08) },
-          { file: "robotic-arm-trash-picking/realistic_plastic_bottle.stl", position: new THREE.Vector3(0.0, 0.34, 0.24), size: 0.11, color: "#9eb9d2", rotation: new THREE.Euler(0, 0.4, Math.PI / 2), hold: new THREE.Vector3(0.1, 0.56, 0.1), taskTo: new THREE.Vector3(-0.18, 0.52, -0.36), taskStart: 2.4, taskCycle: 12 },
-          { file: "robotic-arm-trash-picking/crinkled_chips_package.stl", position: new THREE.Vector3(0.24, 0.34, 0.28), size: 0.11, color: "#d0a139", rotation: new THREE.Euler(0, -0.2, 0.4), hold: new THREE.Vector3(0.22, 0.58, 0.1), taskTo: new THREE.Vector3(0.66, 0.52, -0.36), taskStart: 5.2, taskCycle: 12 },
-          { file: "robotic-arm-trash-picking/rotten_banana_realistic.stl", position: new THREE.Vector3(0.48, 0.34, 0.24), size: 0.11, color: "#8a7a28", rotation: new THREE.Euler(0, 0.8, 0.15), hold: new THREE.Vector3(0.34, 0.56, 0.08), taskTo: new THREE.Vector3(0.24, 0.52, -0.42), taskStart: 8.0, taskCycle: 12 },
+          { file: "robotic-arm-trash-picking/blue_recycling_bin_detailed.stl", position: new THREE.Vector3(0.08, 0.34, -0.24), size: 0.36, color: "#2367a8", rotation: new THREE.Euler(-Math.PI / 2, 0, 0.08) },
+          { file: "robotic-arm-trash-picking/green_compost_bin_detailed.stl", position: new THREE.Vector3(0.38, 0.34, -0.27), size: 0.36, color: "#3f8c50", rotation: new THREE.Euler(-Math.PI / 2, 0, 0) },
+          { file: "robotic-arm-trash-picking/black_trash_bin_detailed.stl", position: new THREE.Vector3(0.68, 0.34, -0.24), size: 0.36, color: "#15191b", rotation: new THREE.Euler(-Math.PI / 2, 0, -0.08) },
+          { file: "robotic-arm-trash-picking/realistic_plastic_bottle.stl", position: new THREE.Vector3(-0.1, 0.34, 0.2), size: 0.1, color: "#9eb9d2", rotation: new THREE.Euler(0, 0.4, Math.PI / 2), hold: new THREE.Vector3(0.02, 0.58, 0.13), taskTo: new THREE.Vector3(0.08, 0.62, -0.24), taskStart: 2.4, taskCycle: 12 },
+          { file: "robotic-arm-trash-picking/crinkled_chips_package.stl", position: new THREE.Vector3(0.04, 0.34, 0.24), size: 0.1, color: "#d0a139", rotation: new THREE.Euler(0, -0.2, 0.4), hold: new THREE.Vector3(0.18, 0.59, 0.12), taskTo: new THREE.Vector3(0.68, 0.62, -0.24), taskStart: 5.2, taskCycle: 12 },
+          { file: "robotic-arm-trash-picking/rotten_banana_realistic.stl", position: new THREE.Vector3(0.18, 0.34, 0.18), size: 0.1, color: "#8a7a28", rotation: new THREE.Euler(0, 0.8, 0.15), hold: new THREE.Vector3(0.24, 0.58, 0.1), taskTo: new THREE.Vector3(0.38, 0.62, -0.27), taskStart: 8.0, taskCycle: 12 },
         ]
       : model === "nova"
         ? [
-            { file: "rover-debris-training/debris_01_fractured_concrete_rebar.stl", position: new THREE.Vector3(-1.72, 0, 0.48), size: 0.46, color: "#6d7478", rotation: new THREE.Euler(-Math.PI / 2, 0, 0.35), stretchY: 1.45 },
-            { file: "rover-debris-training/debris_02_twisted_corrugated_sheet_metal.stl", position: new THREE.Vector3(-1.36, 0, -0.62), size: 0.44, color: "#59666a", rotation: new THREE.Euler(-Math.PI / 2, 0, -0.4), stretchY: 1.55 },
-            { file: "rover-debris-training/debris_03_broken_pipe_rubble_cluster.stl", position: new THREE.Vector3(-0.78, 0, 0.88), size: 0.42, color: "#4c575b", rotation: new THREE.Euler(-Math.PI / 2, 0, 0.85), stretchY: 1.35 },
-            { file: "rover-debris-training/debris_01_fractured_concrete_rebar.stl", position: new THREE.Vector3(-0.22, 0, 0.08), size: 0.4, color: "#62696d", rotation: new THREE.Euler(-Math.PI / 2, 0, -0.65), stretchY: 1.45 },
-            { file: "rover-debris-training/debris_02_twisted_corrugated_sheet_metal.stl", position: new THREE.Vector3(0.34, 0, -1.18), size: 0.44, color: "#59666a", rotation: new THREE.Euler(-Math.PI / 2, 0, 0.22), stretchY: 1.55 },
-            { file: "rover-debris-training/debris_03_broken_pipe_rubble_cluster.stl", position: new THREE.Vector3(0.68, 0, 0.62), size: 0.4, color: "#4c575b", rotation: new THREE.Euler(-Math.PI / 2, 0, -0.18), stretchY: 1.35 },
-            { file: "rover-debris-training/debris_01_fractured_concrete_rebar.stl", position: new THREE.Vector3(1.26, 0, -0.48), size: 0.42, color: "#70787c", rotation: new THREE.Euler(-Math.PI / 2, 0, 0.54), stretchY: 1.45 },
-            { file: "rover-debris-training/debris_02_twisted_corrugated_sheet_metal.stl", position: new THREE.Vector3(1.72, 0, 0.58), size: 0.42, color: "#59666a", rotation: new THREE.Euler(-Math.PI / 2, 0, -0.34), stretchY: 1.5 },
-            { file: "rover-debris-training/debris_03_broken_pipe_rubble_cluster.stl", position: new THREE.Vector3(0.02, 0, 1.28), size: 0.4, color: "#4c575b", rotation: new THREE.Euler(-Math.PI / 2, 0, 0.24), stretchY: 1.35 },
-            { file: "rover-debris-training/debris_01_fractured_concrete_rebar.stl", position: new THREE.Vector3(-1.98, 0, 1.22), size: 0.4, color: "#666e72", rotation: new THREE.Euler(-Math.PI / 2, 0, 0.1), stretchY: 1.45 },
-            { file: "rover-debris-training/debris_02_twisted_corrugated_sheet_metal.stl", position: new THREE.Vector3(1.96, 0, -1.16), size: 0.42, color: "#59666a", rotation: new THREE.Euler(-Math.PI / 2, 0, 0.7), stretchY: 1.5 },
-            { file: "person_marker", position: new THREE.Vector3(-0.46, 0, -0.9), size: 0.38, color: "#d0a139", roverPickup: 0.29 },
-            { file: "person_marker", position: new THREE.Vector3(1.05, 0, -1.06), size: 0.38, color: "#d0a139", roverPickup: 0.48 },
-            { file: "person_marker", position: new THREE.Vector3(1.08, 0, 0.92), size: 0.38, color: "#d0a139", roverPickup: 0.72 },
+            { file: "rover-debris-training/debris_01_fractured_concrete_rebar.stl", position: new THREE.Vector3(-2.55, 0, -1.28), size: 0.66, color: "#6d7478", rotation: new THREE.Euler(-Math.PI / 2, 0, 0.35), stretchY: 1.8 },
+            { file: "rover-debris-training/debris_02_twisted_corrugated_sheet_metal.stl", position: new THREE.Vector3(-2.28, 0, 0.1), size: 0.62, color: "#59666a", rotation: new THREE.Euler(-Math.PI / 2, 0, -0.4), stretchY: 1.9 },
+            { file: "rover-debris-training/debris_03_broken_pipe_rubble_cluster.stl", position: new THREE.Vector3(-1.56, 0, -1.68), size: 0.58, color: "#4c575b", rotation: new THREE.Euler(-Math.PI / 2, 0, 0.85), stretchY: 1.7 },
+            { file: "rover-debris-training/debris_01_fractured_concrete_rebar.stl", position: new THREE.Vector3(-1.1, 0, 1.78), size: 0.58, color: "#62696d", rotation: new THREE.Euler(-Math.PI / 2, 0, -0.65), stretchY: 1.85 },
+            { file: "rover-debris-training/debris_02_twisted_corrugated_sheet_metal.stl", position: new THREE.Vector3(-0.28, 0, -1.86), size: 0.62, color: "#59666a", rotation: new THREE.Euler(-Math.PI / 2, 0, 0.22), stretchY: 1.95 },
+            { file: "rover-debris-training/debris_03_broken_pipe_rubble_cluster.stl", position: new THREE.Vector3(-0.44, 0, 0.72), size: 0.56, color: "#4c575b", rotation: new THREE.Euler(-Math.PI / 2, 0, -0.18), stretchY: 1.75 },
+            { file: "rover-debris-training/debris_01_fractured_concrete_rebar.stl", position: new THREE.Vector3(0.58, 0, 1.42), size: 0.6, color: "#70787c", rotation: new THREE.Euler(-Math.PI / 2, 0, 0.54), stretchY: 1.82 },
+            { file: "rover-debris-training/debris_02_twisted_corrugated_sheet_metal.stl", position: new THREE.Vector3(0.84, 0, -0.62), size: 0.58, color: "#59666a", rotation: new THREE.Euler(-Math.PI / 2, 0, -0.34), stretchY: 1.85 },
+            { file: "rover-debris-training/debris_03_broken_pipe_rubble_cluster.stl", position: new THREE.Vector3(1.62, 0, 0.48), size: 0.62, color: "#4c575b", rotation: new THREE.Euler(-Math.PI / 2, 0, 0.24), stretchY: 1.78 },
+            { file: "rover-debris-training/debris_01_fractured_concrete_rebar.stl", position: new THREE.Vector3(1.84, 0, -1.72), size: 0.6, color: "#666e72", rotation: new THREE.Euler(-Math.PI / 2, 0, 0.1), stretchY: 1.85 },
+            { file: "rover-debris-training/debris_02_twisted_corrugated_sheet_metal.stl", position: new THREE.Vector3(2.52, 0, 1.08), size: 0.62, color: "#59666a", rotation: new THREE.Euler(-Math.PI / 2, 0, 0.7), stretchY: 1.9 },
+            { file: "rover-debris-training/debris_03_broken_pipe_rubble_cluster.stl", position: new THREE.Vector3(2.68, 0, -0.72), size: 0.58, color: "#4c575b", rotation: new THREE.Euler(-Math.PI / 2, 0, -0.52), stretchY: 1.75 },
+            { file: "rover-debris-training/debris_01_fractured_concrete_rebar.stl", position: new THREE.Vector3(0.02, 0, 2.05), size: 0.56, color: "#697175", rotation: new THREE.Euler(-Math.PI / 2, 0, 1.1), stretchY: 1.8 },
+            { file: "rover-debris-training/debris_02_twisted_corrugated_sheet_metal.stl", position: new THREE.Vector3(-2.7, 0, 1.55), size: 0.58, color: "#59666a", rotation: new THREE.Euler(-Math.PI / 2, 0, -0.9), stretchY: 1.9 },
+            { file: "person_marker", position: new THREE.Vector3(-0.62, 0, -1.06), size: 0.58, color: "#d0a139", roverPickup: 0.29 },
+            { file: "person_marker", position: new THREE.Vector3(1.22, 0, -1.08), size: 0.58, color: "#d0a139", roverPickup: 0.48 },
+            { file: "person_marker", position: new THREE.Vector3(1.1, 0, 1.05), size: 0.58, color: "#d0a139", roverPickup: 0.72 },
           ]
         : [];
 
@@ -784,12 +790,12 @@ function addDesktopSortingTable(scene: THREE.Scene, assemblyMeshes: AssemblyMesh
   const table = new THREE.Group();
   const material = new THREE.MeshStandardMaterial({ color: "#343d40", roughness: 0.72, metalness: 0.18 });
   const top = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.08, 1.05), material);
-  top.position.set(0.25, 0.24, -0.05);
+  top.position.set(0.25, 0.22, -0.05);
   table.add(top);
   for (const x of [-0.38, 0.88]) {
     for (const z of [-0.48, 0.36]) {
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.24, 0.055), material.clone());
-      leg.position.set(x, 0.12, z);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.2, 0.055), material.clone());
+      leg.position.set(x, 0.1, z);
       table.add(leg);
     }
   }
@@ -888,6 +894,7 @@ async function createWarehouseToteLoadingScene(scene: THREE.Scene, assemblyMeshe
     scene.add(object);
     assemblyMeshes.push({ mesh: object, startTime: startedAt + 0.8 + index * 0.18, duration: 0.24 });
   }
+  addWarehouseCriteria(scene, assemblyMeshes, startedAt + 1.5);
 }
 
 function animateWarehousePackage(
@@ -919,6 +926,45 @@ function animateWarehousePackage(
     return;
   }
   object.position.copy(task.drop);
+}
+
+function addWarehouseCriteria(scene: THREE.Scene, assemblyMeshes: AssemblyMesh[], startedAt: number) {
+  const group = new THREE.Group();
+  group.position.set(0.62, 0.12, 0.26);
+  const baseMaterial = new THREE.MeshStandardMaterial({ color: "#1f2527", roughness: 0.7, metalness: 0.2 });
+  const base = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.08, 0.12), baseMaterial);
+  base.position.y = 0.04;
+  group.add(base);
+
+  const lights: THREE.Mesh[] = [];
+  for (let index = 0; index < 3; index += 1) {
+    const light = new THREE.Mesh(
+      new THREE.SphereGeometry(0.035, 18, 10),
+      new THREE.MeshStandardMaterial({ color: "#9a3030", emissive: "#3d0909", emissiveIntensity: 0.35 }),
+    );
+    light.position.set(-0.11 + index * 0.11, 0.11, 0);
+    lights.push(light);
+    group.add(light);
+  }
+
+  group.userData.animate = (time: number) => {
+    const elapsed = positiveModulo(time - startedAt, 12);
+    lights.forEach((light, index) => {
+      const complete = elapsed > 4.1 + index * 2.3;
+      const material = light.material as THREE.MeshStandardMaterial;
+      material.color.set(complete ? "#2cff75" : "#9a3030");
+      material.emissive.set(complete ? "#0a8f35" : "#3d0909");
+      material.emissiveIntensity = complete ? 0.75 : 0.35;
+    });
+  };
+  group.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      child.castShadow = true;
+      child.receiveShadow = true;
+    }
+  });
+  scene.add(group);
+  assemblyMeshes.push({ mesh: group, startTime: startedAt + 0.8, duration: 0.28 });
 }
 
 async function loadWarehouseStl(file: string, targetSize: number, color: string) {
@@ -1173,7 +1219,13 @@ function parseNumberList(value: string | null, fallback: number[]) {
   return parsed.length > 0 ? parsed : fallback;
 }
 
-function animateUnitreeG1(bodies: Map<string, THREE.Group>, time: number, training = false, startedAt = 0) {
+function animateUnitreeG1(
+  bodies: Map<string, THREE.Group>,
+  time: number,
+  training = false,
+  startedAt = 0,
+  root?: THREE.Group,
+) {
   if (!training) {
     const gait = Math.sin(time * 1.2) * 0.06;
     rotateBody(bodies, "left_shoulder_pitch_link", "y", 0.08 + gait);
@@ -1193,6 +1245,18 @@ function animateUnitreeG1(bodies: Map<string, THREE.Group>, time: number, traini
   const place = pulseWindow(local, 0.56, 0.66, 0.76);
   const active = Math.max(reach, lift, transfer, place);
   const release = pulseWindow(local, 0.68, 0.75, 0.86);
+  const stepForward = pulseWindow(local, 0.42, 0.56, 0.72);
+  const stepBack = pulseWindow(local, 0.72, 0.84, 0.98);
+  const walking = Math.max(stepForward, stepBack);
+  const gait = Math.sin(local * Math.PI * 12) * walking;
+
+  if (root) {
+    const base = (root.userData.trainingBasePosition as THREE.Vector3 | undefined) ?? root.position.clone();
+    root.userData.trainingBasePosition = base;
+    root.position.x = base.x + stepForward * 0.1 - stepBack * 0.04;
+    root.position.z = base.z - stepForward * 0.13 + stepBack * 0.09;
+    root.position.y = base.y + Math.abs(gait) * 0.012;
+  }
 
   rotateBody(bodies, "waist_yaw_link", "z", transfer * 0.34 - place * 0.08);
   rotateBodyMulti(bodies, "torso_link", {
@@ -1200,6 +1264,7 @@ function animateUnitreeG1(bodies: Map<string, THREE.Group>, time: number, traini
     y: -reach * 0.16 + lift * 0.06,
     z: transfer * 0.12,
   });
+  rotateBody(bodies, "head_link", "z", detect * 0.18 - transfer * 0.08);
   rotateBody(bodies, "left_shoulder_pitch_link", "y", -0.05 + active * 0.18);
   rotateBody(bodies, "left_shoulder_roll_link", "x", -0.12 - active * 0.18);
   rotateBody(bodies, "left_elbow_link", "y", -0.18 - active * 0.25);
@@ -1209,10 +1274,12 @@ function animateUnitreeG1(bodies: Map<string, THREE.Group>, time: number, traini
   rotateBody(bodies, "right_elbow_link", "y", -0.2 - reach * 0.68 + lift * 0.22 + place * 0.28);
   rotateBody(bodies, "right_wrist_pitch_link", "y", -0.18 - reach * 0.34 + place * 0.3);
   rotateBody(bodies, "right_wrist_yaw_link", "z", transfer * 0.22);
-  rotateBody(bodies, "left_hip_pitch_link", "y", -0.04);
-  rotateBody(bodies, "right_hip_pitch_link", "y", -0.04);
-  rotateBody(bodies, "left_knee_link", "y", 0.06);
-  rotateBody(bodies, "right_knee_link", "y", 0.06);
+  rotateBody(bodies, "left_hip_pitch_link", "y", -0.04 + gait * 0.18);
+  rotateBody(bodies, "right_hip_pitch_link", "y", -0.04 - gait * 0.18);
+  rotateBody(bodies, "left_knee_link", "y", 0.06 + Math.max(0, -gait) * 0.22);
+  rotateBody(bodies, "right_knee_link", "y", 0.06 + Math.max(0, gait) * 0.22);
+  rotateBody(bodies, "left_ankle_pitch_link", "y", -gait * 0.08);
+  rotateBody(bodies, "right_ankle_pitch_link", "y", gait * 0.08);
   rotateBody(bodies, "right_hand_thumb_0_link", "y", release > 0 ? 0.08 : -0.72 * active);
   rotateBody(bodies, "right_hand_index_0_link", "z", release > 0 ? 0.04 : 0.92 * active);
   rotateBody(bodies, "right_hand_middle_0_link", "z", release > 0 ? 0.04 : 0.92 * active);
@@ -1231,16 +1298,18 @@ function pulseWindow(value: number, start: number, peak: number, end: number) {
 }
 
 function animateFrankaPanda(bodies: Map<string, THREE.Group>, time: number, training: boolean) {
-  const speed = training ? 1.7 : 0.65;
+  const speed = training ? 1 : 0.65;
   const phase = training ? positiveModulo(time, 12) / 12 : (Math.sin(time * speed) + 1) / 2;
-  const reach = training ? Math.sin(phase * Math.PI * 3) : Math.sin(time * speed);
-  rotateBody(bodies, "link1", "z", reach * 0.86);
-  rotateBody(bodies, "link2", "z", -0.7 + Math.sin(time * speed + 0.9) * 0.62);
-  rotateBody(bodies, "link3", "z", Math.cos(time * speed + 0.4) * 0.48);
-  rotateBody(bodies, "link4", "z", -1.05 + Math.sin(time * speed + 1.6) * 0.58);
-  rotateBody(bodies, "link5", "z", Math.cos(time * speed * 1.2) * 0.68);
-  rotateBody(bodies, "link6", "z", 0.3 + Math.sin(time * speed * 1.4) * 0.58);
-  rotateBody(bodies, "link7", "z", Math.cos(time * speed * 1.6) * 0.42);
+  const pick = pulseWindow(phase, 0.08, 0.16, 0.28) + pulseWindow(phase, 0.32, 0.43, 0.52) + pulseWindow(phase, 0.58, 0.68, 0.78);
+  const carry = pulseWindow(phase, 0.2, 0.35, 0.5) + pulseWindow(phase, 0.45, 0.6, 0.72) + pulseWindow(phase, 0.7, 0.83, 0.96);
+  const reach = training ? THREE.MathUtils.clamp(pick + carry * 0.62, 0, 1) : Math.sin(time * speed);
+  rotateBody(bodies, "link1", "z", training ? -0.18 + carry * 0.5 - pick * 0.12 : reach * 0.36);
+  rotateBody(bodies, "link2", "z", training ? -0.44 - pick * 0.28 + carry * 0.1 : -0.45 + Math.sin(time * speed + 0.9) * 0.22);
+  rotateBody(bodies, "link3", "z", training ? 0.16 + pick * 0.18 - carry * 0.1 : Math.cos(time * speed + 0.4) * 0.18);
+  rotateBody(bodies, "link4", "z", training ? -0.62 + reach * 0.32 : -0.62 + Math.sin(time * speed + 1.6) * 0.2);
+  rotateBody(bodies, "link5", "z", training ? 0.2 - carry * 0.3 : Math.cos(time * speed * 1.2) * 0.22);
+  rotateBody(bodies, "link6", "z", training ? 0.24 + pick * 0.24 : 0.18 + Math.sin(time * speed * 1.4) * 0.2);
+  rotateBody(bodies, "link7", "z", training ? -0.08 + carry * 0.2 : Math.cos(time * speed * 1.6) * 0.14);
   const graspWindow = training && (phase > 0.16 && phase < 0.68);
   const grip = graspWindow ? 0.006 : 0.038;
   bodies.get("left_finger")?.position.set(0, grip, 0.0584);

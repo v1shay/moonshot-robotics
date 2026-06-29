@@ -1,14 +1,13 @@
 import {
   Box,
-  Bot,
   Circle,
   Cpu,
   Crosshair,
-  Database,
   Layers,
   Lightbulb,
   LocateFixed,
   MessageSquare,
+  Mic,
   Move3D,
   Pause,
   Play,
@@ -19,6 +18,8 @@ import {
   Settings,
   Sparkles,
   Terminal,
+  Volume2,
+  VolumeX,
   Zap,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -34,6 +35,11 @@ type ChatMessage = {
   preview?: {
     label: string;
     file: string;
+  };
+  imagePreview?: {
+    label: string;
+    file: string;
+    detail: string;
   };
 };
 
@@ -52,14 +58,6 @@ const stageRows = [
   { name: "Environment", type: "Xform", muted: false },
   { name: "RobotAssembly", type: "Xform", muted: false },
   { name: "PhysicsScene", type: "Scope", muted: true },
-];
-
-const quickAssets = [
-  { name: "Manipulator Arm", meta: "URDF-ready rig", icon: Bot },
-  { name: "Drive Base", meta: "Wheeled platform", icon: Cpu },
-  { name: "Sensor Mast", meta: "Camera/LiDAR slot", icon: LocateFixed },
-  { name: "Joint Block", meta: "Revolute module", icon: RotateCw },
-  { name: "End Effector", meta: "Gripper mount", icon: Crosshair },
 ];
 
 const initialSession: ModelSession = {
@@ -89,11 +87,15 @@ export function App() {
   const [sessions, setSessions] = useState<ModelSession[]>([initialSession]);
   const [activeSessionId, setActiveSessionId] = useState(initialSession.id);
   const [prompt, setPrompt] = useState("");
+  const [speechEnabled, setSpeechEnabled] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const messagesRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<any>(null);
   const activeSession = sessions.find((session) => session.id === activeSessionId) ?? sessions[0];
   const messages = activeSession.messages;
   const trainingCode = activeSession.trainingCode;
   const workflowStatus = activeSession.status;
+  const bottomLibraryAssets = libraryAssets.slice(0, 24);
 
   useEffect(() => {
     messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight, behavior: "smooth" });
@@ -111,6 +113,47 @@ export function App() {
 
   const appendMessage = (sessionId: string, message: ChatMessage) => {
     updateSession(sessionId, (session) => ({ ...session, messages: [...session.messages, message] }));
+  };
+
+  const appendAgentMessage = (sessionId: string, message: ChatMessage) => {
+    appendMessage(sessionId, message);
+    if (speechEnabled && message.text && !message.preview && !message.imagePreview) {
+      speakLuna(message.text);
+    }
+  };
+
+  const speakLuna = (text: string) => {
+    if (!("speechSynthesis" in window)) return;
+    const utterance = new SpeechSynthesisUtterance(text.replace(/\.\.\./g, "."));
+    utterance.rate = 0.92;
+    utterance.pitch = 1.02;
+    utterance.volume = 0.78;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const startListening = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      appendAgentMessage(activeSessionId, {
+        role: "agent",
+        text: "I can use browser speech input in Chrome or Safari. This browser did not expose SpeechRecognition, so text input is still active.",
+      });
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+    recognition.continuous = false;
+    recognition.onstart = () => setIsListening(true);
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => setIsListening(false);
+    recognition.onresult = (event: any) => {
+      const transcript = event.results?.[0]?.[0]?.transcript;
+      if (transcript) setPrompt((value) => `${value}${value ? " " : ""}${transcript}`);
+    };
+    recognitionRef.current = recognition;
+    recognition.start();
   };
 
   const setSessionStatus = (status: string) => {
@@ -196,12 +239,21 @@ export function App() {
       const modelName = requestedModel === "humanoid" ? "Unitree G1 humanoid" : requestedModel === "nova" ? "Luna Rover" : shouldTrain ? "Franka Panda sorting cell" : "Franka Panda arm";
       const parts = shouldTrain ? getTrainingPreviewParts(requestedModel) : getPreviewParts(requestedModel);
       const chatStream: ChatMessage[] = [
-        { role: "agent", text: `Thinking... I am reading the viewport, parsing the request, and deciding how to build the ${modelName}.` },
-        { role: "agent", text: "Querying idō DB... I am asking the MongoDB-backed index for candidate joints, meshes, materials, and assembly constraints in sequence." },
-        { role: "agent", text: `Found ${parts[0].label}. ${shouldTrain ? "This generated task object is entering the training scene." : "This is the first structural part I need from idō Library."}`, preview: parts[0] },
+        { role: "agent", text: `Thinking... the request points to ${modelName}, so I am checking the active sandbox, the needed joints, and the task constraints before I touch the viewport.` },
+        { role: "agent", text: "Thinking... I need parts that match the robot body tree, actuator limits, ground contact, and the scene objective. I will source them one by one instead of spawning a completed scene." },
+        {
+          role: "agent",
+          text: "Talking to idō Library via MongoDB... I am querying the idō index for sequential mesh candidates, socket metadata, and task assets.",
+          imagePreview: {
+            label: "idō Library query route",
+            file: "/assets/brand/mongo-db-logo.png",
+            detail: "MongoDB-backed asset index",
+          },
+        },
+        { role: "agent", text: `Found ${parts[0].label}. ${shouldTrain ? "I will keep this as a training asset until the task scene starts." : "This is the first structural part I need from idō Library."}`, preview: parts[0] },
         { role: "agent", text: `Found ${parts[1].label}. I am matching it against the next socket and constraint set.`, preview: parts[1] },
         { role: "agent", text: `Found ${parts[2].label}. I am adding it to the ${shouldTrain ? "curriculum" : "build"} queue before the viewport sequence starts.`, preview: parts[2] },
-        { role: "agent", text: shouldTrain ? "Spawning evaluator agents... early rollouts will fail, then I will tighten rewards until the task completes cleanly." : "Assembling pieces... I am streaming the parts into the sandbox sequentially and checking alignment in the viewport." },
+        { role: "agent", text: shouldTrain ? "Spawning evaluator agents... early rollouts will fail visibly, then I will tighten rewards until the task completes cleanly." : "Assembling pieces... I am streaming the parts into the sandbox sequentially and checking alignment in the viewport." },
         {
           role: "agent",
           text: requestedModel === "desktop" && shouldTrain
@@ -212,9 +264,16 @@ export function App() {
         },
       ];
       chatStream.forEach((message, index) => {
-        window.setTimeout(() => appendMessage(targetSessionId, message), 250 + index * 520);
+        window.setTimeout(() => appendAgentMessage(targetSessionId, message), 320 + index * 760);
       });
-      window.setTimeout(() => runAssemblyWorkflow(requestedModel, shouldTrain, targetSessionId), 1750);
+      window.setTimeout(() => runAssemblyWorkflow(requestedModel, shouldTrain, targetSessionId), 980 + chatStream.length * 760);
+    } else {
+      window.setTimeout(() => {
+        appendAgentMessage(activeSessionId, {
+          role: "agent",
+          text: getSmallTalkReply(trimmed),
+        });
+      }, 360);
     }
   };
 
@@ -388,31 +447,21 @@ export function App() {
             </div>
             {bottomTab === "idō Library" && (
               <div className="asset-grid">
-                {(activeTopView === "library" ? libraryAssets : quickAssets).map((asset) => {
-                  const QuickIcon = "id" in asset ? null : asset.icon;
+                {bottomLibraryAssets.map((asset) => {
                   return (
                     <button
                       className="asset-tile"
-                      key={"id" in asset ? asset.id : asset.name}
+                      key={asset.id}
                       onClick={() => {
-                        if ("id" in asset) {
-                          selectAsset(asset.label, "library");
-                        } else {
-                          selectAsset(asset.name, "sandbox");
-                          spawn("robot");
-                        }
+                        selectAsset(asset.label, "library");
                       }}
                     >
-                      {"id" in asset ? (
-                        <div className={`asset-preview tone-${asset.iconTone}`}>
-                          <img src={asset.icon} alt="" />
-                        </div>
-                      ) : (
-                        <div className="asset-preview">{QuickIcon ? <QuickIcon size={24} /> : null}</div>
-                      )}
+                      <div className={`asset-preview tone-${asset.iconTone}`}>
+                        <img src={asset.icon} alt="" />
+                      </div>
                       <div>
-                        <strong>{"label" in asset ? asset.label : asset.name}</strong>
-                        <span>{"group" in asset ? `${asset.model} / ${asset.group}` : asset.meta}</span>
+                        <strong>{asset.label}</strong>
+                        <span>{asset.model} / {asset.group}</span>
                       </div>
                     </button>
                   );
@@ -470,6 +519,7 @@ export function App() {
                     <span>{message.role === "agent" ? "Luna" : "You"}</span>
                     <p>{message.text}</p>
                     {message.preview && <PartPreview label={message.preview.label} file={message.preview.file} />}
+                    {message.imagePreview && <ImagePreview {...message.imagePreview} />}
                   </div>
                 ))}
               </div>
@@ -498,6 +548,22 @@ export function App() {
                 }}
                 placeholder="Ask Luna to inspect, script, or assemble..."
               />
+              <button
+                className={isListening ? "active" : ""}
+                onClick={startListening}
+                aria-label="Speak to Luna"
+                title="Speak to Luna"
+              >
+                <Mic size={16} />
+              </button>
+              <button
+                className={speechEnabled ? "active" : ""}
+                onClick={() => setSpeechEnabled((value) => !value)}
+                aria-label="Toggle Luna voice"
+                title="Toggle Luna voice"
+              >
+                {speechEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+              </button>
               <button onClick={sendMessage} aria-label="Send message"><Send size={16} /></button>
             </div>
           </section>
@@ -567,6 +633,19 @@ function makeSessionTitle(model: RobotModel, promptText: string) {
   if (!cleaned) return generic;
   const words = cleaned.split(" ").slice(0, 3).join(" ");
   return words.replace(/\b\w/g, (char) => char.toUpperCase()) || generic;
+}
+
+function getSmallTalkReply(promptText: string) {
+  if (/\b(hi|hello|hey|how are you|what'?s up)\b/i.test(promptText)) {
+    return "I am online and watching the sandbox. Ask me for a robot build, a training run, or a scene inspection and I will source the pieces through idō.";
+  }
+  if (/\b(thanks|thank you)\b/i.test(promptText)) {
+    return "You got it. I will keep the viewport stable and only change the scene when you explicitly ask for a build or training run.";
+  }
+  if (/\b(status|what are you doing|ready)\b/i.test(promptText)) {
+    return "I am ready. The current session is isolated, chat history is pinned to this tab, and the canvas will frame the next model before assembly starts.";
+  }
+  return "I can answer quick questions, inspect the current sandbox, or start a build/training workflow when you ask for Unitree G1, Luna Rover, or Franka Panda.";
 }
 
 function getPreviewParts(model: RobotModel) {
@@ -713,6 +792,18 @@ function PartPreview({ label, file }: { label: string; file: string }) {
       <div>
         <strong>{label}</strong>
         <small>{file.split("/").pop()}</small>
+      </div>
+    </div>
+  );
+}
+
+function ImagePreview({ label, file, detail }: { label: string; file: string; detail: string }) {
+  return (
+    <div className="part-preview image-card">
+      <img src={file} alt="" />
+      <div>
+        <strong>{label}</strong>
+        <small>{detail}</small>
       </div>
     </div>
   );

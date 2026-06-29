@@ -385,19 +385,19 @@ button:hover {
   overflow: auto;
   padding: 13px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  grid-auto-rows: 82px;
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(156px, 1fr));
+  grid-auto-rows: 76px;
+  gap: 8px;
   background: #1a1e20;
 }
 
 .asset-tile {
   display: grid;
-  grid-template-columns: 62px 1fr;
+  grid-template-columns: 54px 1fr;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
-  min-height: 82px;
+  min-height: 76px;
   background: #222629;
   border: 1px solid #34383a;
   border-radius: 4px;
@@ -412,7 +412,7 @@ button:hover {
 }
 
 .asset-preview {
-  height: 55px;
+  height: 50px;
   border: 1px solid #131618;
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0)),
@@ -424,8 +424,8 @@ button:hover {
 }
 
 .asset-preview img {
-  width: 31px;
-  height: 31px;
+  width: 30px;
+  height: 30px;
   object-fit: contain;
   filter: invert(75%) sepia(62%) saturate(620%) hue-rotate(3deg) brightness(93%) contrast(88%);
 }
@@ -763,6 +763,16 @@ button:hover {
   background: #15191b;
 }
 
+.part-preview.image-card img {
+  width: 86px;
+  height: 86px;
+  display: block;
+  border: 1px solid #2c3133;
+  background: #15191b;
+  object-fit: contain;
+  padding: 10px;
+}
+
 .part-preview strong,
 .part-preview small {
   display: block;
@@ -781,7 +791,7 @@ button:hover {
 
 .chat-input {
   display: grid;
-  grid-template-columns: 1fr 34px;
+  grid-template-columns: 1fr 34px 34px 34px;
   gap: 7px;
   padding: 8px;
   background: #3a3d3e;
@@ -805,6 +815,12 @@ button:hover {
   height: 34px;
   align-self: end;
   background: #2f3436;
+}
+
+.chat-input button.active {
+  color: #d0a139;
+  border-color: #78612f;
+  background: #24282a;
 }
 
 @media (max-width: 1180px) {
