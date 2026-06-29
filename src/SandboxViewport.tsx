@@ -277,10 +277,17 @@ export function SandboxViewport({
       const size = new THREE.Vector3();
       box.getCenter(center);
       box.getSize(size);
-      const radius = Math.max(size.x, size.y, size.z, 1.2);
-      const multiplier = model === "humanoid" ? 1.28 : model === "desktop" ? 1.48 : 1.42;
+      const direction = new THREE.Vector3(1.25, 0.72, 1.18).normalize();
+      const aspect = Math.max(camera.aspect, 0.1);
+      const verticalFov = THREE.MathUtils.degToRad(camera.fov);
+      const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * aspect);
+      const fitHeightDistance = size.y / (2 * Math.tan(verticalFov / 2));
+      const fitWidthDistance = size.x / (2 * Math.tan(horizontalFov / 2));
+      const fitDepthDistance = size.z * 0.9;
+      const padding = model === "humanoid" ? 1.32 : model === "desktop" ? 1.42 : 1.36;
+      const distance = Math.max(fitHeightDistance, fitWidthDistance, fitDepthDistance, 1.4) * padding;
       controls.target.copy(center);
-      camera.position.set(center.x + radius * multiplier, center.y + radius * multiplier * 0.62, center.z + radius * multiplier * 1.08);
+      camera.position.copy(center).addScaledVector(direction, distance);
       camera.near = 0.01;
       camera.far = 220;
       camera.updateProjectionMatrix();
@@ -294,9 +301,9 @@ export function SandboxViewport({
           : model === "desktop"
             ? new THREE.Vector3(0, 1.05, 0)
             : new THREE.Vector3(0, 0.55, 0);
-      const radius = model === "humanoid" ? 2.55 : model === "desktop" ? 2.15 : 1.75;
+      const radius = model === "humanoid" ? 2.0 : model === "desktop" ? 1.7 : 1.35;
       controls.target.copy(center);
-      camera.position.set(center.x + radius * 1.35, center.y + radius * 0.78, center.z + radius * 1.45);
+      camera.position.set(center.x + radius * 1.12, center.y + radius * 0.72, center.z + radius * 1.18);
       camera.near = 0.01;
       camera.far = 220;
       camera.updateProjectionMatrix();

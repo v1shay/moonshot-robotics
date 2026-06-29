@@ -497,6 +497,7 @@ function PartPreview({ label, file }: { label: string; file: string }) {
     scene.background = new THREE.Color("#15191b");
     const camera = new THREE.PerspectiveCamera(38, 1, 0.01, 100);
     camera.position.set(2.1, 1.4, 2.4);
+    camera.lookAt(0, 0, 0);
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(86, 86, false);
@@ -506,28 +507,36 @@ function PartPreview({ label, file }: { label: string; file: string }) {
     scene.add(light);
     const group = new THREE.Group();
     scene.add(group);
+    const fallback = new THREE.Mesh(
+      new THREE.TorusKnotGeometry(0.34, 0.095, 64, 8),
+      new THREE.MeshNormalMaterial(),
+    );
+    group.add(fallback);
+
+    const replacePreview = (object: THREE.Object3D) => {
+      if (disposed) return;
+      group.clear();
+      fitPreviewObject(object);
+      group.add(object);
+    };
 
     if (file.toLowerCase().endsWith(".obj")) {
       new OBJLoader().load(file, (object) => {
-        if (disposed) return;
         object.traverse((child) => {
           if (child instanceof THREE.Mesh) {
-            child.material = new THREE.MeshStandardMaterial({ color: "#9fa9ad", roughness: 0.42, metalness: 0.5 });
+            child.material = new THREE.MeshNormalMaterial();
           }
         });
-        fitPreviewObject(object);
-        group.add(object);
+        replacePreview(object);
       });
     } else {
       new STLLoader().load(file, (geometry) => {
-        if (disposed) return;
         geometry.computeVertexNormals();
         const mesh = new THREE.Mesh(
           geometry,
-          new THREE.MeshStandardMaterial({ color: "#9fa9ad", roughness: 0.42, metalness: 0.5 }),
+          new THREE.MeshNormalMaterial(),
         );
-        fitPreviewObject(mesh);
-        group.add(mesh);
+        replacePreview(mesh);
       });
     }
 
@@ -571,6 +580,7 @@ function fitPreviewObject(object: THREE.Object3D) {
   const center = new THREE.Vector3();
   box.getSize(size);
   box.getCenter(center);
-  object.position.sub(center);
-  object.scale.multiplyScalar(1.35 / Math.max(size.x, size.y, size.z, 0.001));
+  const scale = 1.35 / Math.max(size.x, size.y, size.z, 0.001);
+  object.scale.multiplyScalar(scale);
+  object.position.addScaledVector(center, -scale);
 }
