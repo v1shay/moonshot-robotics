@@ -33,6 +33,8 @@ type AssemblyMesh = {
   mesh: THREE.Object3D;
   startTime: number;
   duration: number;
+  revealOnly?: boolean;
+  noReveal?: boolean;
 };
 
 const darkMetal = new THREE.MeshStandardMaterial({
@@ -209,7 +211,8 @@ export function SandboxViewport({
     }
 
     function clearAssembly() {
-      assemblyMeshes.splice(0).forEach(({ mesh }) => {
+      assemblyMeshes.splice(0).forEach(({ mesh, revealOnly }) => {
+        if (revealOnly) return;
         scene.remove(mesh);
         mesh.traverse((child) => {
           if (child instanceof THREE.Mesh) {
@@ -264,6 +267,7 @@ export function SandboxViewport({
     function frameAssembly(items: AssemblyMesh[]) {
       const box = new THREE.Box3();
       items.forEach(({ mesh }) => {
+        if (mesh.userData.revealOnly) return;
         mesh.updateWorldMatrix(true, true);
         box.expandByObject(mesh);
       });
@@ -402,7 +406,8 @@ function animateAssembly(assemblyMeshes: AssemblyMesh[], elapsed: number) {
 }
 
 function prepareReveal(assemblyMeshes: AssemblyMesh[]) {
-  assemblyMeshes.forEach(({ mesh }) => {
+  assemblyMeshes.forEach(({ mesh, noReveal }) => {
+    if (noReveal) return;
     mesh.visible = false;
     mesh.userData.targetScale = mesh.scale.clone();
     mesh.scale.setScalar(0.001);
@@ -412,12 +417,14 @@ function prepareReveal(assemblyMeshes: AssemblyMesh[]) {
 function floorAlignAssembly(assemblyMeshes: AssemblyMesh[]) {
   const box = new THREE.Box3();
   assemblyMeshes.forEach(({ mesh }) => {
+    if (mesh.userData.revealOnly) return;
     mesh.updateWorldMatrix(true, true);
     box.expandByObject(mesh);
   });
   if (!Number.isFinite(box.min.y)) return;
   const lift = -box.min.y + 0.015;
   assemblyMeshes.forEach(({ mesh }) => {
+    if (mesh.userData.revealOnly) return;
     mesh.position.y += lift;
     const motion = mesh.userData.motion as { from: THREE.Vector3; to: THREE.Vector3 } | undefined;
     if (motion) {
@@ -483,13 +490,14 @@ async function loadObjWithMaterials(objFile: string, mtlFile: string) {
 type MujocoModel = {
   group: THREE.Group;
   namedBodies: Map<string, THREE.Group>;
+  bodyOrder: THREE.Group[];
 };
 
 async function createUnitreeG1Assembly(scene: THREE.Scene, assemblyMeshes: AssemblyMesh[], startedAt: number) {
   const model = await loadMujocoModel("/assets/unitree_g1", "g1_with_hands.xml", 2.25);
   model.group.userData.animate = (time: number) => animateUnitreeG1(model.namedBodies, time);
   scene.add(model.group);
-  assemblyMeshes.push({ mesh: model.group, startTime: startedAt, duration: 0.55 });
+  scheduleMujocoReveal(model, assemblyMeshes, startedAt, 0.035);
 }
 
 async function createFrankaPandaAssembly(
@@ -502,7 +510,7 @@ async function createFrankaPandaAssembly(
   model.group.position.set(-0.55, 0, 0.35);
   model.group.userData.animate = (time: number) => animateFrankaPanda(model.namedBodies, time, training);
   scene.add(model.group);
-  assemblyMeshes.push({ mesh: model.group, startTime: startedAt, duration: 0.55 });
+  const buildDuration = scheduleMujocoReveal(model, assemblyMeshes, startedAt, 0.12);
 
   if (!training) return;
 
@@ -512,23 +520,23 @@ async function createFrankaPandaAssembly(
   [-1.45, 0, 1.45].forEach((x, index) => {
     const bin = createOpenBin(boxMaterial.clone());
     bin.position.set(x, 0.18, -1.75);
-    tasks.push({ mesh: bin, delay: 0.7 + index * 0.12 });
+    tasks.push({ mesh: bin, delay: buildDuration + 0.35 + index * 0.12 });
   });
 
   const cube = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.32, 0.32), darkMetal.clone());
   cube.position.set(-0.82, 0.16, 1.05);
   cube.userData.motion = { from: cube.position.clone(), to: new THREE.Vector3(-1.45, 0.5, -1.75), start: startedAt + 2.3, duration: 1.3 };
-  tasks.push({ mesh: cube, delay: 1.1 });
+  tasks.push({ mesh: cube, delay: buildDuration + 0.8 });
 
   const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.19, 32, 16), bodyMaterial.clone());
   sphere.position.set(0, 0.19, 1.12);
   sphere.userData.motion = { from: sphere.position.clone(), to: new THREE.Vector3(0, 0.5, -1.75), start: startedAt + 3.9, duration: 1.3 };
-  tasks.push({ mesh: sphere, delay: 1.25 });
+  tasks.push({ mesh: sphere, delay: buildDuration + 0.95 });
 
   const cylinder = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.36, 32), accentMaterial.clone());
   cylinder.position.set(0.82, 0.18, 1.05);
   cylinder.userData.motion = { from: cylinder.position.clone(), to: new THREE.Vector3(1.45, 0.5, -1.75), start: startedAt + 5.5, duration: 1.3 };
-  tasks.push({ mesh: cylinder, delay: 1.4 });
+  tasks.push({ mesh: cylinder, delay: buildDuration + 1.1 });
 
   tasks.forEach(({ mesh, delay }) => {
     mesh.traverse((child) => {
@@ -540,6 +548,25 @@ async function createFrankaPandaAssembly(
     scene.add(mesh);
     assemblyMeshes.push({ mesh, startTime: startedAt + delay, duration: 0.28 });
   });
+}
+
+function scheduleMujocoReveal(
+  model: MujocoModel,
+  assemblyMeshes: AssemblyMesh[],
+  startedAt: number,
+  cadence: number,
+) {
+  assemblyMeshes.push({ mesh: model.group, startTime: startedAt, duration: 0.01, noReveal: true });
+  model.bodyOrder.forEach((body, index) => {
+    body.userData.revealOnly = true;
+    assemblyMeshes.push({
+      mesh: body,
+      startTime: startedAt + index * cadence,
+      duration: Math.min(0.48, cadence * 4.2),
+      revealOnly: true,
+    });
+  });
+  return model.bodyOrder.length * cadence;
 }
 
 async function loadMujocoModel(baseUrl: string, xmlFile: string, displayScale: number): Promise<MujocoModel> {
@@ -554,13 +581,14 @@ async function loadMujocoModel(baseUrl: string, xmlFile: string, displayScale: n
   const meshes = parseMujocoMeshes(xml);
   const cache = new Map<string, Promise<THREE.Object3D>>();
   const namedBodies = new Map<string, THREE.Group>();
+  const bodyOrder: THREE.Group[] = [];
   const root = new THREE.Group();
   root.rotation.x = -Math.PI / 2;
   root.scale.setScalar(displayScale);
 
   const worldBodies = Array.from(xml.querySelectorAll("worldbody > body"));
   for (const body of worldBodies) {
-    root.add(await buildMujocoBody(body, { baseUrl, meshDir, meshes, materials, cache, namedBodies }));
+    root.add(await buildMujocoBody(body, { baseUrl, meshDir, meshes, materials, cache, namedBodies, bodyOrder }));
   }
 
   root.traverse((child) => {
@@ -570,7 +598,7 @@ async function loadMujocoModel(baseUrl: string, xmlFile: string, displayScale: n
     }
   });
 
-  return { group: root, namedBodies };
+  return { group: root, namedBodies, bodyOrder };
 }
 
 async function buildMujocoBody(
@@ -582,6 +610,7 @@ async function buildMujocoBody(
     materials: Map<string, THREE.Material>;
     cache: Map<string, Promise<THREE.Object3D>>;
     namedBodies: Map<string, THREE.Group>;
+    bodyOrder: THREE.Group[];
   },
 ) {
   const group = new THREE.Group();
@@ -590,6 +619,7 @@ async function buildMujocoBody(
     group.name = name;
     context.namedBodies.set(name, group);
   }
+  context.bodyOrder.push(group);
   applyMujocoTransform(group, bodyNode);
 
   for (const geom of Array.from(bodyNode.children).filter((child) => child.tagName === "geom")) {
