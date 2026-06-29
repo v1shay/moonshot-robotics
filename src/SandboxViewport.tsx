@@ -272,6 +272,7 @@ export function SandboxViewport({
       const box = new THREE.Box3();
       items.forEach(({ mesh }) => {
         if (mesh.userData.revealOnly) return;
+        if (mesh.userData.excludeFromFrame) return;
         mesh.updateWorldMatrix(true, true);
         box.expandByObject(mesh);
       });
@@ -287,7 +288,7 @@ export function SandboxViewport({
       const fitHeightDistance = size.y / (2 * Math.tan(verticalFov / 2));
       const fitWidthDistance = size.x / (2 * Math.tan(horizontalFov / 2));
       const fitDepthDistance = size.z * 0.9;
-      const padding = model === "humanoid" ? 1.32 : model === "desktop" ? 1.42 : 1.36;
+      const padding = model === "humanoid" ? 1.24 : model === "desktop" ? 1.08 : 1.28;
       const distance = Math.max(fitHeightDistance, fitWidthDistance, fitDepthDistance, 1.4) * padding;
       controls.target.copy(center);
       camera.position.copy(center).addScaledVector(direction, distance);
@@ -459,7 +460,62 @@ function floorAlignAssembly(assemblyMeshes: AssemblyMesh[]) {
       motion.from.y += lift;
       motion.to.y += lift;
     }
+    const taskMotion = mesh.userData.taskMotion as { from: THREE.Vector3; to: THREE.Vector3 } | undefined;
+    if (taskMotion) {
+      taskMotion.from.y += lift;
+      taskMotion.to.y += lift;
+    }
   });
+}
+
+function positiveModulo(value: number, mod: number) {
+  return ((value % mod) + mod) % mod;
+}
+
+function getBaseY(object: THREE.Object3D) {
+  if (object.userData.baseY == null) object.userData.baseY = object.position.y;
+  return object.userData.baseY as number;
+}
+
+function animateTaskObject(
+  object: THREE.Object3D,
+  time: number,
+  task?: { from: THREE.Vector3; to: THREE.Vector3; start: number; cycle: number; lift: number },
+) {
+  if (!task) return;
+  const local = positiveModulo(time - task.start, task.cycle) / task.cycle;
+  const pick = 0.15;
+  const liftEnd = 0.28;
+  const carryEnd = 0.54;
+  const dropEnd = 0.68;
+  if (local < pick) {
+    object.position.copy(task.from);
+    return;
+  }
+  if (local < liftEnd) {
+    const t = (local - pick) / (liftEnd - pick);
+    object.position.copy(task.from);
+    object.position.y += smoothStep(t) * task.lift;
+    return;
+  }
+  if (local < carryEnd) {
+    const t = smoothStep((local - liftEnd) / (carryEnd - liftEnd));
+    object.position.lerpVectors(task.from, task.to, t);
+    object.position.y += Math.sin(t * Math.PI) * task.lift;
+    return;
+  }
+  if (local < dropEnd) {
+    const t = smoothStep((local - carryEnd) / (dropEnd - carryEnd));
+    object.position.copy(task.to);
+    object.position.y += (1 - t) * task.lift * 0.42;
+    return;
+  }
+  object.position.copy(task.to);
+}
+
+function smoothStep(t: number) {
+  const clamped = THREE.MathUtils.clamp(t, 0, 1);
+  return clamped * clamped * (3 - 2 * clamped);
 }
 
 async function createNovaCarterAssembly(scene: THREE.Scene, assemblyMeshes: AssemblyMesh[], startedAt: number, training = false) {
@@ -513,12 +569,31 @@ async function createNovaCarterAssembly(scene: THREE.Scene, assemblyMeshes: Asse
 
   if (training) {
     root.userData.animate = (time: number) => {
-      const t = (Math.sin(time * 0.45) + 1) / 2;
-      root.position.x = THREE.MathUtils.lerp(-1.2, 1.05, t);
-      root.position.z = Math.sin(time * 0.9) * 0.26;
-      root.rotation.z = Math.sin(time * 0.9) * 0.11;
-      leftWheel.rotation.z -= 0.11;
-      rightWheel.rotation.z -= 0.11;
+      const baseY = getBaseY(root);
+      const cycle = 13;
+      const local = positiveModulo(time - startedAt, cycle) / cycle;
+      const path = [
+        new THREE.Vector3(-1.55, baseY, 1.15),
+        new THREE.Vector3(-0.95, baseY, 0.42),
+        new THREE.Vector3(-0.42, baseY, -0.88),
+        new THREE.Vector3(0.28, baseY, -0.34),
+        new THREE.Vector3(1.1, baseY, -1.06),
+        new THREE.Vector3(1.42, baseY, 0.36),
+        new THREE.Vector3(-1.55, baseY, 1.15),
+      ];
+      const scaled = local * (path.length - 1);
+      const index = Math.min(path.length - 2, Math.floor(scaled));
+      const segmentT = scaled - index;
+      const eased = segmentT * segmentT * (3 - 2 * segmentT);
+      const current = path[index].clone().lerp(path[index + 1], eased);
+      const previousX = root.userData.previousPathX as number | undefined;
+      root.position.copy(current);
+      const direction = path[index + 1].clone().sub(path[index]);
+      root.rotation.z = Math.atan2(direction.z, direction.x) * 0.18;
+      const distance = previousX == null ? 0.015 : current.x - previousX;
+      leftWheel.rotation.z += distance * 9;
+      rightWheel.rotation.z += distance * 9;
+      root.userData.previousPathX = current.x;
     };
   }
 
@@ -545,8 +620,19 @@ type MujocoModel = {
 };
 
 async function createUnitreeG1Assembly(scene: THREE.Scene, assemblyMeshes: AssemblyMesh[], startedAt: number, training = false) {
-  const model = await loadMujocoModel("/assets/unitree_g1", "g1_with_hands.xml", 2.25);
-  model.group.userData.animate = (time: number) => animateUnitreeG1(model.namedBodies, time, training);
+  const model = await loadMujocoModel("/assets/unitree_g1", "g1_with_hands.xml", training ? 2.7 : 2.35);
+  model.group.userData.animate = (time: number) => {
+    if (training) {
+      const baseY = getBaseY(model.group);
+      const phase = positiveModulo(time - startedAt, 10.5) / 10.5;
+      const stride = Math.sin(phase * Math.PI * 2);
+      model.group.position.x = 0.05 + stride * 0.42;
+      model.group.position.y = baseY + Math.abs(stride) * 0.055;
+      model.group.position.z = 0.05 + Math.cos(phase * Math.PI * 2) * 0.22;
+      model.group.rotation.z = stride * 0.18;
+    }
+    animateUnitreeG1(model.namedBodies, time, training);
+  };
   scene.add(model.group);
   scheduleMujocoReveal(model, assemblyMeshes, startedAt, 0.035);
 }
@@ -558,8 +644,19 @@ async function createFrankaPandaAssembly(
   training: boolean,
 ) {
   const model = await loadMujocoModel("/assets/franka_emika_panda", "panda.xml", 3.35);
-  model.group.position.set(-0.55, 0, 0.35);
-  model.group.userData.animate = (time: number) => animateFrankaPanda(model.namedBodies, time, training);
+  model.group.position.set(-0.22, 0, 0.28);
+  model.group.userData.animate = (time: number) => {
+    if (training) {
+      const baseY = getBaseY(model.group);
+      const phase = positiveModulo(time - startedAt, 12) / 12;
+      const sweep = Math.sin(phase * Math.PI * 3);
+      model.group.position.set(-0.22 + sweep * 0.08, baseY, 0.28 + Math.sin(phase * Math.PI * 2) * 0.1);
+      model.group.rotation.x = -Math.PI / 2;
+      model.group.rotation.y = sweep * 0.42;
+      model.group.rotation.z = Math.sin(phase * Math.PI * 2) * 0.28;
+    }
+    animateFrankaPanda(model.namedBodies, time, training);
+  };
   scene.add(model.group);
   scheduleMujocoReveal(model, assemblyMeshes, startedAt, 0.12);
 }
@@ -596,26 +693,30 @@ async function createTrainingDemoScene(
     color: string;
     rotation?: THREE.Euler;
     float?: boolean;
-    motionTo?: THREE.Vector3;
-    motionStart?: number;
+    taskTo?: THREE.Vector3;
+    taskStart?: number;
+    taskCycle?: number;
   };
   const entries =
     model === "desktop"
       ? [
-          { file: "robotic-arm-trash-picking/blue_recycling_bin_detailed.stl", position: new THREE.Vector3(-1.35, 0, -1.7), size: 0.62, color: "#2367a8", rotation: new THREE.Euler(0, 0.05, 0) },
-          { file: "robotic-arm-trash-picking/green_compost_bin_detailed.stl", position: new THREE.Vector3(0, 0, -1.7), size: 0.62, color: "#3f8c50" },
-          { file: "robotic-arm-trash-picking/black_trash_bin_detailed.stl", position: new THREE.Vector3(1.35, 0, -1.7), size: 0.62, color: "#15191b", rotation: new THREE.Euler(0, -0.05, 0) },
-          { file: "robotic-arm-trash-picking/realistic_plastic_bottle.stl", position: new THREE.Vector3(-0.72, 0, 0.9), size: 0.24, color: "#9eb9d2", rotation: new THREE.Euler(0, 0.4, Math.PI / 2), motionTo: new THREE.Vector3(-1.35, 0.6, -1.7), motionStart: 3.0 },
-          { file: "robotic-arm-trash-picking/crinkled_chips_package.stl", position: new THREE.Vector3(0.04, 0, 0.95), size: 0.25, color: "#d0a139", rotation: new THREE.Euler(0, -0.2, 0.4), motionTo: new THREE.Vector3(1.35, 0.6, -1.7), motionStart: 5.1 },
-          { file: "robotic-arm-trash-picking/rotten_banana_realistic.stl", position: new THREE.Vector3(0.78, 0, 0.9), size: 0.25, color: "#8a7a28", rotation: new THREE.Euler(0, 0.8, 0.15), motionTo: new THREE.Vector3(0, 0.6, -1.7), motionStart: 7.2 },
+          { file: "robotic-arm-trash-picking/blue_recycling_bin_detailed.stl", position: new THREE.Vector3(-0.84, 0, -1.08), size: 0.34, color: "#2367a8", rotation: new THREE.Euler(-Math.PI / 2, 0, 0.08) },
+          { file: "robotic-arm-trash-picking/green_compost_bin_detailed.stl", position: new THREE.Vector3(0, 0, -1.08), size: 0.34, color: "#3f8c50", rotation: new THREE.Euler(-Math.PI / 2, 0, 0) },
+          { file: "robotic-arm-trash-picking/black_trash_bin_detailed.stl", position: new THREE.Vector3(0.84, 0, -1.08), size: 0.34, color: "#15191b", rotation: new THREE.Euler(-Math.PI / 2, 0, -0.08) },
+          { file: "robotic-arm-trash-picking/realistic_plastic_bottle.stl", position: new THREE.Vector3(-0.52, 0, 0.66), size: 0.16, color: "#9eb9d2", rotation: new THREE.Euler(0, 0.4, Math.PI / 2), taskTo: new THREE.Vector3(-0.84, 0.34, -1.08), taskStart: 2.4, taskCycle: 12 },
+          { file: "robotic-arm-trash-picking/crinkled_chips_package.stl", position: new THREE.Vector3(0.02, 0, 0.72), size: 0.16, color: "#d0a139", rotation: new THREE.Euler(0, -0.2, 0.4), taskTo: new THREE.Vector3(0.84, 0.34, -1.08), taskStart: 5.2, taskCycle: 12 },
+          { file: "robotic-arm-trash-picking/rotten_banana_realistic.stl", position: new THREE.Vector3(0.56, 0, 0.66), size: 0.16, color: "#8a7a28", rotation: new THREE.Euler(0, 0.8, 0.15), taskTo: new THREE.Vector3(0, 0.34, -1.08), taskStart: 8.0, taskCycle: 12 },
         ]
       : model === "nova"
         ? [
-            { file: "rover-debris-training/debris_01_fractured_concrete_rebar.stl", position: new THREE.Vector3(-1.4, 0, 0.82), size: 0.48, color: "#6d7478", rotation: new THREE.Euler(0, 0.4, 0) },
-            { file: "rover-debris-training/debris_02_twisted_corrugated_sheet_metal.stl", position: new THREE.Vector3(0.1, 0, 1.05), size: 0.48, color: "#59666a", rotation: new THREE.Euler(0, -0.25, 0) },
-            { file: "rover-debris-training/debris_03_broken_pipe_rubble_cluster.stl", position: new THREE.Vector3(1.2, 0, 0.12), size: 0.46, color: "#4c575b", rotation: new THREE.Euler(0, 0.9, 0) },
-            { file: "rover-debris-training/rescue_star_people_marker.stl", position: new THREE.Vector3(-0.45, 0, -1.0), size: 0.22, color: "#d0a139", rotation: new THREE.Euler(0, 0.2, 0), motionTo: new THREE.Vector3(0.2, 0.32, -0.28), motionStart: 4.0 },
-            { file: "rover-debris-training/rescue_star_people_marker.stl", position: new THREE.Vector3(1.15, 0, -1.1), size: 0.2, color: "#ffd15b", rotation: new THREE.Euler(0, -0.3, 0), motionTo: new THREE.Vector3(0.25, 0.36, -0.12), motionStart: 6.4 },
+            { file: "rover-debris-training/debris_01_fractured_concrete_rebar.stl", position: new THREE.Vector3(-1.28, 0, 0.62), size: 0.44, color: "#6d7478", rotation: new THREE.Euler(-Math.PI / 2, 0, 0.35) },
+            { file: "rover-debris-training/debris_02_twisted_corrugated_sheet_metal.stl", position: new THREE.Vector3(-0.62, 0, 0.08), size: 0.42, color: "#59666a", rotation: new THREE.Euler(-Math.PI / 2, 0, -0.4) },
+            { file: "rover-debris-training/debris_03_broken_pipe_rubble_cluster.stl", position: new THREE.Vector3(-0.05, 0, 0.72), size: 0.42, color: "#4c575b", rotation: new THREE.Euler(-Math.PI / 2, 0, 0.85) },
+            { file: "rover-debris-training/debris_01_fractured_concrete_rebar.stl", position: new THREE.Vector3(0.5, 0, -0.82), size: 0.4, color: "#62696d", rotation: new THREE.Euler(-Math.PI / 2, 0, -0.65) },
+            { file: "rover-debris-training/debris_02_twisted_corrugated_sheet_metal.stl", position: new THREE.Vector3(1.08, 0, -0.24), size: 0.4, color: "#59666a", rotation: new THREE.Euler(-Math.PI / 2, 0, 0.22) },
+            { file: "rover-debris-training/debris_03_broken_pipe_rubble_cluster.stl", position: new THREE.Vector3(1.42, 0, 0.58), size: 0.4, color: "#4c575b", rotation: new THREE.Euler(-Math.PI / 2, 0, -0.18) },
+            { file: "rover-debris-training/rescue_star_people_marker.stl", position: new THREE.Vector3(-0.42, 0, -0.88), size: 0.18, color: "#d0a139", rotation: new THREE.Euler(-Math.PI / 2, 0, 0.2) },
+            { file: "rover-debris-training/rescue_star_people_marker.stl", position: new THREE.Vector3(1.1, 0, -1.06), size: 0.17, color: "#ffd15b", rotation: new THREE.Euler(-Math.PI / 2, 0, -0.3) },
           ]
         : [
             { file: "humanoid-factory-work/01_conveyor_support_frame_damaged.stl", position: new THREE.Vector3(-1.2, 0, -0.85), size: 0.55, color: "#59666a", rotation: new THREE.Euler(0, 0.12, 0) },
@@ -624,6 +725,7 @@ async function createTrainingDemoScene(
             { file: "humanoid-factory-work/09_spark_rays_and_burst_cluster.stl", position: new THREE.Vector3(0.92, 0.82, -0.78), size: 0.28, color: "#d0a139", rotation: new THREE.Euler(0.1, 0, -0.2), float: true },
             { file: "humanoid-factory-work/21_rain_streaks_mesh_cluster.stl", position: new THREE.Vector3(0, 2.25, -0.15), size: 0.85, color: "#7ba9d6", rotation: new THREE.Euler(0.18, 0, -0.24), float: true },
             { file: "humanoid-factory-work/14_damaged_parts_crate_with_contents.stl", position: new THREE.Vector3(0.9, 0, 0.72), size: 0.4, color: "#7a5b36", rotation: new THREE.Euler(0, 0.25, 0) },
+            { file: "humanoid-factory-work/12_scattered_gears_and_sprockets.stl", position: new THREE.Vector3(0.62, 0, 0.36), size: 0.34, color: "#d0a139", rotation: new THREE.Euler(0, -0.35, 0.2), taskTo: new THREE.Vector3(-1.08, 0.62, -0.84), taskStart: 2.7, taskCycle: 10.5 },
           ] satisfies TrainingEntry[];
 
   for (let index = 0; index < entries.length; index += 1) {
@@ -631,13 +733,18 @@ async function createTrainingDemoScene(
     const object = await loadTrainingStl(`/assets/training-demo/${entry.file}`, entry.size, entry.color);
     object.position.copy(entry.position);
     if (entry.rotation) object.rotation.copy(entry.rotation);
+    if (entry.float) object.userData.excludeFromFrame = true;
     if (!entry.float) setObjectOnGround(object, entry.position.y);
-    if (entry.motionTo && entry.motionStart != null) {
-      object.userData.motion = {
+    if (entry.taskTo && entry.taskStart != null) {
+      object.userData.taskMotion = {
         from: object.position.clone(),
-        to: entry.motionTo.clone(),
-        start: startedAt + entry.motionStart,
-        duration: 1.25,
+        to: entry.taskTo.clone(),
+        start: startedAt + entry.taskStart,
+        cycle: entry.taskCycle ?? 11,
+        lift: model === "desktop" ? 0.52 : 0.42,
+      };
+      object.userData.animate = (time: number) => {
+        animateTaskObject(object, time, object.userData.taskMotion);
       };
     }
     scene.add(object);
@@ -850,33 +957,38 @@ function parseNumberList(value: string | null, fallback: number[]) {
 }
 
 function animateUnitreeG1(bodies: Map<string, THREE.Group>, time: number, training = false) {
-  const gait = Math.sin(time * 1.2) * (training ? 0.1 : 0.06);
-  const reach = training ? (Math.sin(time * 1.05) + 1) / 2 : 0;
-  const inspect = training ? Math.sin(time * 2.1) * 0.08 : 0;
-  rotateBody(bodies, "left_shoulder_pitch_link", "y", 0.08 + gait + reach * 0.22);
-  rotateBody(bodies, "right_shoulder_pitch_link", "y", 0.08 - gait - reach * 0.2);
-  rotateBody(bodies, "left_elbow_link", "y", -0.08 - reach * 0.38 + Math.sin(time * 1.5) * 0.045);
-  rotateBody(bodies, "right_elbow_link", "y", -0.08 - reach * 0.34 - Math.sin(time * 1.5) * 0.045);
-  rotateBody(bodies, "left_wrist_pitch_link", "y", -0.12 + inspect);
-  rotateBody(bodies, "right_wrist_pitch_link", "y", -0.14 - inspect);
+  const gait = Math.sin(time * 1.2) * (training ? 0.18 : 0.06);
+  const reach = training ? (Math.sin(time * 0.95) + 1) / 2 : 0;
+  const inspect = training ? Math.sin(time * 2.1) * 0.18 : 0;
+  rotateBody(bodies, "left_shoulder_pitch_link", "y", 0.08 + gait + reach * 0.52);
+  rotateBody(bodies, "right_shoulder_pitch_link", "y", 0.08 - gait - reach * 0.48);
+  rotateBody(bodies, "left_shoulder_roll_link", "x", training ? -0.28 - reach * 0.22 : 0);
+  rotateBody(bodies, "right_shoulder_roll_link", "x", training ? 0.28 + reach * 0.22 : 0);
+  rotateBody(bodies, "left_elbow_link", "y", -0.08 - reach * 0.72 + Math.sin(time * 1.5) * 0.08);
+  rotateBody(bodies, "right_elbow_link", "y", -0.08 - reach * 0.68 - Math.sin(time * 1.5) * 0.08);
+  rotateBody(bodies, "left_wrist_pitch_link", "y", -0.18 + inspect);
+  rotateBody(bodies, "right_wrist_pitch_link", "y", -0.2 - inspect);
   rotateBody(bodies, "left_hip_pitch_link", "y", -0.015 - gait * 0.18 - (training ? 0.035 : 0));
   rotateBody(bodies, "right_hip_pitch_link", "y", -0.015 + gait * 0.18 - (training ? 0.035 : 0));
-  rotateBody(bodies, "left_knee_link", "y", 0.025 + Math.max(gait, 0) * 0.12 + reach * 0.045);
-  rotateBody(bodies, "right_knee_link", "y", 0.025 + Math.max(-gait, 0) * 0.12 + reach * 0.045);
-  rotateBody(bodies, "torso_link", "z", Math.sin(time * 0.7) * (training ? 0.055 : 0.035));
-  rotateBody(bodies, "waist_yaw_link", "z", training ? Math.sin(time * 0.85) * 0.12 : 0);
+  rotateBody(bodies, "left_knee_link", "y", 0.025 + Math.max(gait, 0) * 0.18 + reach * 0.09);
+  rotateBody(bodies, "right_knee_link", "y", 0.025 + Math.max(-gait, 0) * 0.18 + reach * 0.09);
+  rotateBody(bodies, "torso_link", "z", Math.sin(time * 0.7) * (training ? 0.09 : 0.035));
+  rotateBody(bodies, "waist_yaw_link", "z", training ? Math.sin(time * 0.85) * 0.24 : 0);
 }
 
 function animateFrankaPanda(bodies: Map<string, THREE.Group>, time: number, training: boolean) {
-  const speed = training ? 1.25 : 0.65;
-  rotateBody(bodies, "link1", "z", Math.sin(time * speed) * 0.38);
-  rotateBody(bodies, "link2", "z", -0.55 + Math.sin(time * speed + 0.9) * 0.34);
-  rotateBody(bodies, "link3", "z", Math.cos(time * speed + 0.4) * 0.26);
-  rotateBody(bodies, "link4", "z", -0.8 + Math.sin(time * speed + 1.6) * 0.32);
-  rotateBody(bodies, "link5", "z", Math.cos(time * speed * 1.2) * 0.42);
-  rotateBody(bodies, "link6", "z", 0.3 + Math.sin(time * speed * 1.4) * 0.36);
-  rotateBody(bodies, "link7", "z", Math.cos(time * speed * 1.6) * 0.24);
-  const grip = training ? 0.012 + Math.abs(Math.sin(time * 2.6)) * 0.026 : 0.028;
+  const speed = training ? 1.7 : 0.65;
+  const phase = training ? positiveModulo(time, 12) / 12 : (Math.sin(time * speed) + 1) / 2;
+  const reach = training ? Math.sin(phase * Math.PI * 3) : Math.sin(time * speed);
+  rotateBody(bodies, "link1", "z", reach * 0.86);
+  rotateBody(bodies, "link2", "z", -0.7 + Math.sin(time * speed + 0.9) * 0.62);
+  rotateBody(bodies, "link3", "z", Math.cos(time * speed + 0.4) * 0.48);
+  rotateBody(bodies, "link4", "z", -1.05 + Math.sin(time * speed + 1.6) * 0.58);
+  rotateBody(bodies, "link5", "z", Math.cos(time * speed * 1.2) * 0.68);
+  rotateBody(bodies, "link6", "z", 0.3 + Math.sin(time * speed * 1.4) * 0.58);
+  rotateBody(bodies, "link7", "z", Math.cos(time * speed * 1.6) * 0.42);
+  const graspWindow = training && (phase > 0.16 && phase < 0.68);
+  const grip = graspWindow ? 0.006 : 0.038;
   bodies.get("left_finger")?.position.set(0, grip, 0.0584);
   bodies.get("right_finger")?.position.set(0, -grip, 0.0584);
 }
