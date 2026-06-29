@@ -58,7 +58,7 @@ export function App() {
   const [isPlaying, setIsPlaying] = useState(true);
   const [spawnRequest, setSpawnRequest] = useState<{ kind: SpawnKind; id: number } | null>(null);
   const [resetSignal, setResetSignal] = useState(0);
-  const [workflowRequest, setWorkflowRequest] = useState<{ id: number; model: RobotModel } | null>(null);
+  const [workflowRequest, setWorkflowRequest] = useState<{ id: number; model: RobotModel; training: boolean } | null>(null);
   const [workflowStatus, setWorkflowStatus] = useState("Idle");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [trainingCode, setTrainingCode] = useState("// Ask Luna to build or train a robot.");
@@ -75,41 +75,44 @@ export function App() {
     setSpawnRequest({ kind, id: Date.now() });
   };
 
-  const runAssemblyWorkflow = (model: RobotModel) => {
+  const runAssemblyWorkflow = (model: RobotModel, training = false) => {
     setActiveTopView("sandbox");
     setBottomTab("Console");
     setIsPlaying(true);
-    const modelName = model === "humanoid" ? "humanoid" : model === "nova" ? "Luna Rover" : "desktop sorting arm";
+    const modelName = model === "humanoid" ? "Unitree G1" : model === "nova" ? "Luna Rover" : training ? "Franka Panda sorting cell" : "Franka Panda arm";
     setWorkflowStatus(`Luna assembling ${modelName}`);
-    setWorkflowRequest({ id: Date.now(), model });
-    setTrainingCode(getTrainingCode(model));
+    setWorkflowRequest({ id: Date.now(), model, training });
+    setTrainingCode(getTrainingCode(model, training));
   };
 
   const sendMessage = () => {
     const trimmed = prompt.trim();
     if (!trimmed) return;
 
-    const shouldAssemble = /\b(assemble|build|robot|train|training|nova|carter|humanoid|desktop|arm|sort|sorting|boxes)\b/i.test(trimmed);
+    const shouldAssemble = /\b(assemble|build|robot|train|training|nova|carter|rover|humanoid|unitree|g1|franka|panda|desktop|arm|sort|sorting|boxes)\b/i.test(trimmed);
+    const shouldTrain = /\b(train|training|sort|sorting|boxes|cube|sphere|cylinder|task)\b/i.test(trimmed);
     const requestedModel: RobotModel = /\b(nova|carter|rover)\b/i.test(trimmed)
       ? "nova"
-      : /\b(desktop|arm|sort|sorting|boxes)\b/i.test(trimmed)
+      : /\b(franka|panda|desktop|arm|sort|sorting|boxes)\b/i.test(trimmed)
         ? "desktop"
         : "humanoid";
     setMessages((current) => [...current, { role: "user", text: trimmed }]);
     setPrompt("");
     if (shouldAssemble) {
-      const modelName = requestedModel === "humanoid" ? "humanoid robot" : requestedModel === "nova" ? "Luna Rover" : "desktop sorting arm";
+      const modelName = requestedModel === "humanoid" ? "Unitree G1 humanoid" : requestedModel === "nova" ? "Luna Rover" : shouldTrain ? "Franka Panda sorting cell" : "Franka Panda arm";
       [
         `Thinking... I am reading the viewport, parsing the request, and deciding how to build the ${modelName}.`,
         "Sourcing from idō Library... I am selecting the required components from the randomized asset set.",
         "Assembling pieces... I am placing parts into the sandbox one at a time and checking alignment in the viewport.",
-        requestedModel === "desktop"
+        requestedModel === "desktop" && shouldTrain
           ? "Training... I am spawning shapes and bins, then running the sorting policy."
-          : "Training... I am preparing the generated control policy shown above.",
+          : shouldTrain
+            ? "Training... I am preparing the generated control policy shown above."
+            : "Finalizing... I am checking the assembled robot in the viewport and preparing it for the next instruction.",
       ].forEach((text, index) => {
         window.setTimeout(() => setMessages((current) => [...current, { role: "agent", text }]), 250 + index * 650);
       });
-      window.setTimeout(() => runAssemblyWorkflow(requestedModel), 2150);
+      window.setTimeout(() => runAssemblyWorkflow(requestedModel, shouldTrain), 2150);
     }
   };
 
@@ -181,14 +184,15 @@ export function App() {
         <section className="library-screen">
           <div className="library-head">
             <strong>idō Library</strong>
-            <span>{libraryAssets.length} randomized components across humanoid, Luna Rover, and desktop sorting systems</span>
+            <span>{libraryAssets.length} randomized components across Unitree G1, Luna Rover, and Franka Panda systems</span>
           </div>
           <div className="library-grid">
             {libraryAssets.map((asset) => {
-              const Icon = asset.model === "nova" ? Database : asset.model === "desktop" ? Cpu : Bot;
               return (
                 <button className="asset-tile" key={asset.id} onClick={() => selectAsset(asset.label, "library")}>
-                  <div className="asset-preview"><Icon size={24} /></div>
+                  <div className={`asset-preview tone-${asset.iconTone}`}>
+                    <img src={asset.icon} alt="" />
+                  </div>
                   <div>
                     <strong>{asset.label}</strong>
                     <span>{asset.model} / {asset.group}</span>
@@ -286,7 +290,7 @@ export function App() {
             {bottomTab === "idō Library" && (
               <div className="asset-grid">
                 {(activeTopView === "library" ? libraryAssets : quickAssets).map((asset) => {
-                  const Icon = "icon" in asset ? asset.icon : asset.model === "nova" ? Database : Bot;
+                  const QuickIcon = "id" in asset ? null : asset.icon;
                   return (
                     <button
                       className="asset-tile"
@@ -300,7 +304,13 @@ export function App() {
                         }
                       }}
                     >
-                      <div className="asset-preview"><Icon size={24} /></div>
+                      {"id" in asset ? (
+                        <div className={`asset-preview tone-${asset.iconTone}`}>
+                          <img src={asset.icon} alt="" />
+                        </div>
+                      ) : (
+                        <div className="asset-preview">{QuickIcon ? <QuickIcon size={24} /> : null}</div>
+                      )}
                       <div>
                         <strong>{"label" in asset ? asset.label : asset.name}</strong>
                         <span>{"group" in asset ? `${asset.model} / ${asset.group}` : asset.meta}</span>
@@ -419,14 +429,18 @@ export function App() {
   );
 }
 
-function getTrainingCode(model: RobotModel) {
+function getTrainingCode(model: RobotModel, training = false) {
   if (model === "desktop") {
-    return `from luna.sim import World, VisionEncoder, PickPlacePolicy\n\nworld = World(viewport=\"current\")\narm = luna.build(\"robotic_arm\", source=\"idō/robotic-arm\")\nobjects = world.spawn_shapes([\"cube\", \"sphere\", \"cylinder\"])\nbins = world.spawn_cardboard_bins(labels=[\"cube\", \"sphere\", \"cylinder\"])\nvision = VisionEncoder(camera=\"viewport\")\npolicy = PickPlacePolicy(robot=arm, task=\"shape_sort\")\n\nfor epoch in range(12):\n    obs = vision.observe(world)\n    plan = policy.plan_pick_place(obs, objects, bins)\n    for command in plan:\n        arm.move_joints(command.joints)\n        arm.close_gripper(command.grasp)\n        world.step()\n    reward = world.score_bins(objects, bins)\n    policy.update(obs, plan, reward)\n\nluna.deploy(policy, robot=arm)`;
+    if (!training) {
+      return `from luna.sim import World\n\nworld = World(viewport=\"current\")\narm = luna.assemble(\"franka_panda\", source=\"idō/franka_emika_panda/panda.xml\")\narm.apply_brand(\"moonshot_robotics\")\narm.enable_joint_animation(mode=\"inspection\")\n\nworld.add(arm)\nviewport.frame(arm)\nluna.report(\"Franka Panda assembled from XML body tree\")`;
+    }
+
+    return `from luna.sim import World, VisionEncoder, PickPlacePolicy, TrajectoryOptimizer\n\nworld = World(viewport=\"current\")\narm = luna.assemble(\"franka_panda\", source=\"idō/franka_emika_panda/panda.xml\")\narm.apply_brand(\"moonshot_robotics\")\nobjects = world.spawn_shapes([\"cube\", \"sphere\", \"cylinder\"], randomized_pose=True)\nbins = world.spawn_cardboard_bins(labels=[\"cube\", \"sphere\", \"cylinder\"])\nvision = VisionEncoder(camera=\"viewport\", features=[\"shape\", \"pose\", \"bin_label\"])\npolicy = PickPlacePolicy(robot=arm, task=\"shape_sort\")\noptimizer = TrajectoryOptimizer(robot=arm, collision_scene=world)\n\nfor epoch in range(36):\n    obs = vision.observe(world)\n    plan = policy.plan_pick_place(obs, objects, bins)\n    for pick, place in plan:\n        trajectory = optimizer.solve(\n            start=arm.joint_state(),\n            grasp_pose=pick.pose,\n            release_pose=place.pose,\n            constraints=[\"clear_table\", \"upright_gripper\", \"bin_centerline\"],\n        )\n        arm.follow(trajectory.approach)\n        arm.close_gripper(force=pick.grasp_force)\n        arm.follow(trajectory.transfer)\n        arm.open_gripper()\n        world.step_until_settled()\n    reward = world.score_bins(objects, bins) + policy.smoothness_bonus(arm)\n    policy.update(obs, plan, reward)\n\nluna.deploy(policy, robot=arm)`;
   }
 
   if (model === "nova") {
     return `from luna.rovers import RoverPolicy\n\nrover = luna.assemble(\"luna_rover\", source=\"idō/nova_carter\")\ntextures.apply(rover, source=\"idō/nova_carter/materials\")\npolicy = RoverPolicy(task=\"sim_navigation\", robot=rover)\n\nfor step in range(train_steps):\n    obs = viewport.observe()\n    action = policy.action(obs)\n    rover.drive(action.linear, action.angular)\n    reward = route_progress(obs) - collision_penalty(obs)\n    policy.update(obs, action, reward)\n\nluna.deploy(policy, robot=rover)`;
   }
 
-  return `from luna.humanoids import BalancePolicy, WholeBodyController\n\nhumanoid = luna.assemble(\"humanoid\", source=\"idō/humanoid\")\ncontroller = WholeBodyController(humanoid)\npolicy = BalancePolicy(task=\"upright_locomotion\", controller=controller)\n\nfor step in range(train_steps):\n    obs = viewport.observe()\n    torques = policy.action(obs)\n    humanoid.apply_torques(torques)\n    reward = upright_stability(obs) + gait_progress(obs)\n    policy.update(obs, torques, reward)\n\nluna.deploy(policy, robot=humanoid)`;
+  return `from luna.humanoids import BalancePolicy, WholeBodyController\n\nhumanoid = luna.assemble(\"unitree_g1\", source=\"idō/unitree_g1/g1_with_hands.xml\")\nhumanoid.apply_brand(\"moonshot_robotics\")\ncontroller = WholeBodyController(humanoid)\npolicy = BalancePolicy(task=\"upright_locomotion\", controller=controller)\n\nfor step in range(train_steps):\n    obs = viewport.observe()\n    torques = policy.action(obs)\n    humanoid.apply_torques(torques)\n    reward = upright_stability(obs) + gait_progress(obs)\n    policy.update(obs, torques, reward)\n\nluna.deploy(policy, robot=humanoid)`;
 }
