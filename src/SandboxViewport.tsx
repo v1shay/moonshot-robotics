@@ -2,6 +2,8 @@ import * as CANNON from "cannon-es";
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
+import { humanoidAssets } from "./humanoidAssets";
 
 export type SpawnKind = "box" | "sphere" | "cylinder" | "robot";
 
@@ -19,6 +21,18 @@ type SandboxViewportProps = {
   isPlaying: boolean;
   spawnRequest: SpawnRequest | null;
   resetSignal: number;
+  workflowRequest: { id: number } | null;
+  onWorkflowStatus: (status: string) => void;
+  stageLights: boolean;
+  cameraMode: string;
+};
+
+type AssemblyMesh = {
+  mesh: THREE.Mesh;
+  target: THREE.Vector3;
+  start: THREE.Vector3;
+  startTime: number;
+  duration: number;
 };
 
 const darkMetal = new THREE.MeshStandardMaterial({
@@ -45,12 +59,23 @@ const bodyMaterial = new THREE.MeshStandardMaterial({
   metalness: 0.35,
 });
 
-export function SandboxViewport({ isPlaying, spawnRequest, resetSignal }: SandboxViewportProps) {
+export function SandboxViewport({
+  isPlaying,
+  spawnRequest,
+  resetSignal,
+  workflowRequest,
+  onWorkflowStatus,
+  stageLights,
+  cameraMode,
+}: SandboxViewportProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const playingRef = useRef(isPlaying);
   const apiRef = useRef<{
     spawn: (kind: SpawnKind) => void;
     reset: () => void;
+    runAssembly: () => void;
+    setStageLights: (enabled: boolean) => void;
+    setCameraMode: (mode: string) => void;
   } | null>(null);
 
   useEffect(() => {
@@ -110,6 +135,7 @@ export function SandboxViewport({ isPlaying, spawnRequest, resetSignal }: Sandbo
     world.addBody(groundBody);
 
     const dynamic: BodyMesh[] = [];
+    const assemblyMeshes: AssemblyMesh[] = [];
     const robot = createRobotAssembly();
     scene.add(robot.group);
 
@@ -176,12 +202,93 @@ export function SandboxViewport({ isPlaying, spawnRequest, resetSignal }: Sandbo
         world.removeBody(body);
         scene.remove(mesh);
       });
+      clearAssembly();
+      robot.group.visible = true;
       spawn("box");
       spawn("sphere");
       spawn("cylinder");
+      onWorkflowStatus("Idle");
     }
 
-    apiRef.current = { spawn, reset };
+    function clearAssembly() {
+      assemblyMeshes.splice(0).forEach(({ mesh }) => {
+        scene.remove(mesh);
+        mesh.geometry.dispose();
+        const material = mesh.material;
+        if (Array.isArray(material)) {
+          material.forEach((entry) => entry.dispose());
+        } else {
+          material.dispose();
+        }
+      });
+    }
+
+    async function runAssembly() {
+      clearAssembly();
+      dynamic.splice(0).forEach(({ body, mesh }) => {
+        world.removeBody(body);
+        scene.remove(mesh);
+      });
+      robot.group.visible = false;
+      onWorkflowStatus("Loading idō Library STL assets");
+
+      const loader = new STLLoader();
+      const startedAt = clock.elapsedTime;
+
+      for (let index = 0; index < humanoidAssets.length; index += 1) {
+        const asset = humanoidAssets[index];
+        onWorkflowStatus(`Assembling ${asset.label}`);
+        try {
+          const geometry = await loader.loadAsync(`/assets/humanoid/${asset.file}`);
+          geometry.computeVertexNormals();
+          geometry.center();
+          const targetSize = getAssetSize(asset.file);
+          const size = new THREE.Vector3();
+          geometry.computeBoundingBox();
+          geometry.boundingBox?.getSize(size);
+          const largest = Math.max(size.x, size.y, size.z, 0.001);
+          geometry.scale(targetSize / largest, targetSize / largest, targetSize / largest);
+
+          const material = makeAssetMaterial(asset.file);
+          const mesh = new THREE.Mesh(geometry, material);
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          mesh.rotation.x = -Math.PI / 2;
+          mesh.rotation.z = getAssetRotation(asset.file);
+
+          const target = getHumanoidTarget(asset.file);
+          const start = new THREE.Vector3(-4.8 + (index % 8) * 0.42, 3.8 + Math.floor(index / 8) * 0.18, -3.2);
+          mesh.position.copy(start);
+          scene.add(mesh);
+          assemblyMeshes.push({
+            mesh,
+            target,
+            start,
+            startTime: startedAt + index * 0.16,
+            duration: 1.1,
+          });
+        } catch {
+          onWorkflowStatus(`Skipped unreadable asset ${asset.file}`);
+        }
+      }
+
+      onWorkflowStatus("Training readiness: humanoid assembled");
+    }
+
+    function setStageLights(enabled: boolean) {
+      key.visible = enabled;
+      rim.visible = enabled;
+      ambient.intensity = enabled ? 1.8 : 0.75;
+    }
+
+    function setCameraMode(mode: string) {
+      camera.fov = mode === "Orthographic" ? 22 : 48;
+      camera.updateProjectionMatrix();
+    }
+
+    apiRef.current = { spawn, reset, runAssembly, setStageLights, setCameraMode };
+    setStageLights(stageLights);
+    setCameraMode(cameraMode);
     reset();
 
     const resize = () => {
@@ -206,6 +313,7 @@ export function SandboxViewport({ isPlaying, spawnRequest, resetSignal }: Sandbo
         world.step(1 / 60, delta, 3);
         animateRobot(robot, elapsed);
       }
+      animateAssembly(assemblyMeshes, elapsed);
 
       dynamic.forEach(({ body, mesh }) => {
         mesh.position.copy(body.position as unknown as THREE.Vector3);
@@ -239,7 +347,30 @@ export function SandboxViewport({ isPlaying, spawnRequest, resetSignal }: Sandbo
     }
   }, [resetSignal]);
 
+  useEffect(() => {
+    if (workflowRequest) {
+      apiRef.current?.runAssembly();
+    }
+  }, [workflowRequest]);
+
+  useEffect(() => {
+    apiRef.current?.setStageLights(stageLights);
+  }, [stageLights]);
+
+  useEffect(() => {
+    apiRef.current?.setCameraMode(cameraMode);
+  }, [cameraMode]);
+
   return <div className="sandbox-host" ref={hostRef} />;
+}
+
+function animateAssembly(assemblyMeshes: AssemblyMesh[], elapsed: number) {
+  assemblyMeshes.forEach(({ mesh, start, target, startTime, duration }) => {
+    const progress = THREE.MathUtils.clamp((elapsed - startTime) / duration, 0, 1);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    mesh.position.lerpVectors(start, target, eased);
+    mesh.rotation.y += progress < 1 ? 0.018 : 0;
+  });
 }
 
 function createMoonshotGrid() {
@@ -336,6 +467,74 @@ function createRobotPartMesh() {
     }
   });
   return group;
+}
+
+function makeAssetMaterial(file: string) {
+  if (file.includes("rubber_hand")) {
+    return new THREE.MeshStandardMaterial({ color: "#202426", roughness: 0.82, metalness: 0.08 });
+  }
+  if (file.includes("logo")) {
+    return accentMaterial.clone();
+  }
+  if (file.includes("head") || file.includes("torso") || file.includes("pelvis")) {
+    return jointMaterial.clone();
+  }
+  return new THREE.MeshStandardMaterial({ color: "#59666a", roughness: 0.48, metalness: 0.55 });
+}
+
+function getAssetSize(file: string) {
+  if (file.includes("torso")) return 1.05;
+  if (file.includes("pelvis")) return 0.82;
+  if (file.includes("head")) return 0.55;
+  if (file.includes("rubber_hand")) return 0.45;
+  if (file.includes("hand_")) return 0.2;
+  if (file.includes("knee") || file.includes("shoulder")) return 0.38;
+  if (file.includes("ankle") || file.includes("wrist")) return 0.25;
+  return 0.34;
+}
+
+function getAssetRotation(file: string) {
+  if (file.startsWith("left_")) return 0.08;
+  if (file.startsWith("right_")) return -0.08;
+  return 0;
+}
+
+function getHumanoidTarget(file: string) {
+  const side = file.startsWith("left_") ? -1 : file.startsWith("right_") ? 1 : 0;
+  const handSpread = file.includes("thumb") ? 0.12 : file.includes("index") ? 0 : file.includes("middle") ? -0.12 : 0;
+
+  if (file === "pelvis.STL") return new THREE.Vector3(0, 1.28, 0);
+  if (file.includes("pelvis_contour")) return new THREE.Vector3(0, 1.42, 0.03);
+  if (file.includes("waist_yaw")) return new THREE.Vector3(0, 1.72, 0);
+  if (file.includes("waist_roll")) return new THREE.Vector3(0, 1.94, 0);
+  if (file.includes("torso")) return new THREE.Vector3(0, 2.42, 0);
+  if (file.includes("logo")) return new THREE.Vector3(0, 2.62, -0.42);
+  if (file.includes("head")) return new THREE.Vector3(0, 3.18, 0);
+
+  if (file.includes("hip_yaw")) return new THREE.Vector3(side * 0.34, 1.02, 0);
+  if (file.includes("hip_roll")) return new THREE.Vector3(side * 0.42, 0.82, 0);
+  if (file.includes("hip_pitch")) return new THREE.Vector3(side * 0.46, 0.58, 0);
+  if (file.includes("knee")) return new THREE.Vector3(side * 0.48, 0.08, 0);
+  if (file.includes("ankle_pitch")) return new THREE.Vector3(side * 0.48, -0.46, 0.03);
+  if (file.includes("ankle_roll")) return new THREE.Vector3(side * 0.48, -0.68, -0.02);
+
+  if (file.includes("shoulder_pitch")) return new THREE.Vector3(side * 0.72, 2.68, 0);
+  if (file.includes("shoulder_roll")) return new THREE.Vector3(side * 0.95, 2.42, 0);
+  if (file.includes("shoulder_yaw")) return new THREE.Vector3(side * 1.18, 2.12, 0);
+  if (file.includes("elbow")) return new THREE.Vector3(side * 1.34, 1.72, 0);
+  if (file.includes("wrist_yaw")) return new THREE.Vector3(side * 1.42, 1.32, 0);
+  if (file.includes("wrist_pitch")) return new THREE.Vector3(side * 1.44, 1.14, 0);
+  if (file.includes("wrist_roll")) return new THREE.Vector3(side * 1.46, 0.96, 0);
+
+  if (file.includes("hand_palm") || file.includes("rubber_hand")) {
+    return new THREE.Vector3(side * 1.5, 0.78, 0);
+  }
+  if (file.includes("hand_")) {
+    const segment = file.includes("_0_") ? 0 : file.includes("_1_") ? -0.1 : -0.2;
+    return new THREE.Vector3(side * (1.56 + Math.abs(segment)), 0.68 + segment, handSpread);
+  }
+
+  return new THREE.Vector3(0, 1.5, 0);
 }
 
 function animateRobot(
