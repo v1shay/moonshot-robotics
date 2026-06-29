@@ -236,12 +236,13 @@ export function SandboxViewport({
       });
       robot.group.visible = false;
       onWorkflowStatus(`Luna reading ${model === "humanoid" ? "Unitree G1 MuJoCo XML" : model === "nova" ? "Luna Rover xacro" : "Franka Panda MuJoCo XML"} assets`);
+      frameBuildSlot(model);
 
       const startedAt = clock.elapsedTime;
       if (model === "nova") {
         await createNovaCarterAssembly(scene, assemblyMeshes, startedAt);
         floorAlignAssembly(assemblyMeshes);
-        frameAssembly(assemblyMeshes);
+        frameAssembly(assemblyMeshes, model);
         prepareReveal(assemblyMeshes);
         onWorkflowStatus("Luna Rover assembled and ready for training");
         return;
@@ -250,7 +251,7 @@ export function SandboxViewport({
       if (model === "desktop") {
         await createFrankaPandaAssembly(scene, assemblyMeshes, startedAt, training);
         floorAlignAssembly(assemblyMeshes);
-        frameAssembly(assemblyMeshes);
+        frameAssembly(assemblyMeshes, model);
         prepareReveal(assemblyMeshes);
         onWorkflowStatus(training ? "Franka Panda trained on cube, sphere, and cylinder bins" : "Franka Panda assembled from XML and ready");
         return;
@@ -259,12 +260,12 @@ export function SandboxViewport({
       await createUnitreeG1Assembly(scene, assemblyMeshes, startedAt);
 
       floorAlignAssembly(assemblyMeshes);
-      frameAssembly(assemblyMeshes);
+      frameAssembly(assemblyMeshes, model);
       prepareReveal(assemblyMeshes);
       onWorkflowStatus("Unitree G1 assembled from XML and ready for training");
     }
 
-    function frameAssembly(items: AssemblyMesh[]) {
+    function frameAssembly(items: AssemblyMesh[], model: RobotModel) {
       const box = new THREE.Box3();
       items.forEach(({ mesh }) => {
         if (mesh.userData.revealOnly) return;
@@ -277,8 +278,25 @@ export function SandboxViewport({
       box.getCenter(center);
       box.getSize(size);
       const radius = Math.max(size.x, size.y, size.z, 1.2);
+      const multiplier = model === "humanoid" ? 1.28 : model === "desktop" ? 1.48 : 1.42;
       controls.target.copy(center);
-      camera.position.set(center.x + radius * 2.1, center.y + radius * 1.18, center.z + radius * 2.25);
+      camera.position.set(center.x + radius * multiplier, center.y + radius * multiplier * 0.62, center.z + radius * multiplier * 1.08);
+      camera.near = 0.01;
+      camera.far = 220;
+      camera.updateProjectionMatrix();
+      controls.update();
+    }
+
+    function frameBuildSlot(model: RobotModel) {
+      const center =
+        model === "humanoid"
+          ? new THREE.Vector3(0, 1.35, 0)
+          : model === "desktop"
+            ? new THREE.Vector3(0, 1.05, 0)
+            : new THREE.Vector3(0, 0.55, 0);
+      const radius = model === "humanoid" ? 2.55 : model === "desktop" ? 2.15 : 1.75;
+      controls.target.copy(center);
+      camera.position.set(center.x + radius * 1.35, center.y + radius * 0.78, center.z + radius * 1.45);
       camera.near = 0.01;
       camera.far = 220;
       camera.updateProjectionMatrix();

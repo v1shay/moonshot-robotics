@@ -22,12 +22,19 @@ import {
   Zap,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import * as THREE from "three";
+import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
+import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import { RobotModel, libraryAssets } from "./libraryAssets";
 import { SandboxViewport, SpawnKind } from "./SandboxViewport";
 
 type ChatMessage = {
   role: "agent" | "user";
   text: string;
+  preview?: {
+    label: string;
+    file: string;
+  };
 };
 
 const stageRows = [
@@ -100,20 +107,27 @@ export function App() {
     setPrompt("");
     if (shouldAssemble) {
       const modelName = requestedModel === "humanoid" ? "Unitree G1 humanoid" : requestedModel === "nova" ? "Luna Rover" : shouldTrain ? "Franka Panda sorting cell" : "Franka Panda arm";
-      [
-        `Thinking... I am reading the viewport, parsing the request, and deciding how to build the ${modelName}.`,
-        "Querying idō DB... I am asking the MongoDB-backed index for candidate joints, meshes, materials, and assembly constraints in sequence.",
-        "Sourcing from idō Library... I am pulling each selected piece into the work queue one by one and validating where it belongs.",
-        "Assembling pieces... I am streaming the parts into the sandbox sequentially and checking alignment in the viewport.",
-        requestedModel === "desktop" && shouldTrain
+      const parts = getPreviewParts(requestedModel);
+      const chatStream: ChatMessage[] = [
+        { role: "agent", text: `Thinking... I am reading the viewport, parsing the request, and deciding how to build the ${modelName}.` },
+        { role: "agent", text: "Querying idō DB... I am asking the MongoDB-backed index for candidate joints, meshes, materials, and assembly constraints in sequence." },
+        { role: "agent", text: `Found ${parts[0].label}. This is the first structural part I need from idō Library.`, preview: parts[0] },
+        { role: "agent", text: `Found ${parts[1].label}. I am matching it against the next socket and constraint set.`, preview: parts[1] },
+        { role: "agent", text: `Found ${parts[2].label}. I am adding it to the build queue before the viewport assembly starts.`, preview: parts[2] },
+        { role: "agent", text: "Assembling pieces... I am streaming the parts into the sandbox sequentially and checking alignment in the viewport." },
+        {
+          role: "agent",
+          text: requestedModel === "desktop" && shouldTrain
           ? "Training... I am spawning shapes and bins, then running the sorting policy."
           : shouldTrain
             ? "Training... I am preparing the generated control policy shown above."
             : "Finalizing... I am checking the assembled robot in the viewport and preparing it for the next instruction.",
-      ].forEach((text, index) => {
-        window.setTimeout(() => setMessages((current) => [...current, { role: "agent", text }]), 250 + index * 650);
+        },
+      ];
+      chatStream.forEach((message, index) => {
+        window.setTimeout(() => setMessages((current) => [...current, message]), 250 + index * 520);
       });
-      window.setTimeout(() => runAssemblyWorkflow(requestedModel, shouldTrain), 2150);
+      window.setTimeout(() => runAssemblyWorkflow(requestedModel, shouldTrain), 1750);
     }
   };
 
@@ -359,6 +373,7 @@ export function App() {
                   <div className={`message ${message.role}`} key={`${message.role}-${index}`}>
                     <span>{message.role === "agent" ? "Luna" : "You"}</span>
                     <p>{message.text}</p>
+                    {message.preview && <PartPreview label={message.preview.label} file={message.preview.file} />}
                   </div>
                 ))}
               </div>
@@ -444,4 +459,118 @@ function getTrainingCode(model: RobotModel, training = false) {
   }
 
   return `from luna.humanoids import BalancePolicy, WholeBodyController\n\nhumanoid = luna.assemble(\"unitree_g1\", source=\"idō/unitree_g1/g1_with_hands.xml\")\nhumanoid.apply_brand(\"moonshot_robotics\")\ncontroller = WholeBodyController(humanoid)\npolicy = BalancePolicy(task=\"upright_locomotion\", controller=controller)\n\nfor step in range(train_steps):\n    obs = viewport.observe()\n    torques = policy.action(obs)\n    humanoid.apply_torques(torques)\n    reward = upright_stability(obs) + gait_progress(obs)\n    policy.update(obs, torques, reward)\n\nluna.deploy(policy, robot=humanoid)`;
+}
+
+function getPreviewParts(model: RobotModel) {
+  if (model === "desktop") {
+    return [
+      { label: "Franka Panda link0 base", file: "/assets/franka_emika_panda/assets/link0.stl" },
+      { label: "Franka Panda link4 actuator shell", file: "/assets/franka_emika_panda/assets/link4.stl" },
+      { label: "Franka Panda hand", file: "/assets/franka_emika_panda/assets/hand.stl" },
+    ];
+  }
+
+  if (model === "nova") {
+    return [
+      { label: "Luna Rover chassis", file: "/assets/nova-carter/meshes/chassis_link.obj" },
+      { label: "Luna Rover drive wheel", file: "/assets/nova-carter/meshes/nova_carter_wheel_left.obj" },
+      { label: "Luna Rover caster wheel", file: "/assets/nova-carter/meshes/caster_wheel.obj" },
+    ];
+  }
+
+  return [
+    { label: "Unitree G1 pelvis", file: "/assets/unitree_g1/assets/pelvis.STL" },
+    { label: "Unitree G1 torso actuator frame", file: "/assets/unitree_g1/assets/torso_link_rev_1_0.STL" },
+    { label: "Unitree G1 shoulder pitch link", file: "/assets/unitree_g1/assets/left_shoulder_pitch_link.STL" },
+  ];
+}
+
+function PartPreview({ label, file }: { label: string; file: string }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    let disposed = false;
+    let frame = 0;
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color("#15191b");
+    const camera = new THREE.PerspectiveCamera(38, 1, 0.01, 100);
+    camera.position.set(2.1, 1.4, 2.4);
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(86, 86, false);
+    scene.add(new THREE.AmbientLight("#a9b4b8", 1.9));
+    const light = new THREE.DirectionalLight("#ffffff", 2.4);
+    light.position.set(3, 4, 5);
+    scene.add(light);
+    const group = new THREE.Group();
+    scene.add(group);
+
+    if (file.toLowerCase().endsWith(".obj")) {
+      new OBJLoader().load(file, (object) => {
+        if (disposed) return;
+        object.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.material = new THREE.MeshStandardMaterial({ color: "#9fa9ad", roughness: 0.42, metalness: 0.5 });
+          }
+        });
+        fitPreviewObject(object);
+        group.add(object);
+      });
+    } else {
+      new STLLoader().load(file, (geometry) => {
+        if (disposed) return;
+        geometry.computeVertexNormals();
+        const mesh = new THREE.Mesh(
+          geometry,
+          new THREE.MeshStandardMaterial({ color: "#9fa9ad", roughness: 0.42, metalness: 0.5 }),
+        );
+        fitPreviewObject(mesh);
+        group.add(mesh);
+      });
+    }
+
+    const animate = () => {
+      frame = requestAnimationFrame(animate);
+      group.rotation.y += 0.012;
+      group.rotation.x = -0.35;
+      renderer.render(scene, camera);
+    };
+    animate();
+
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(frame);
+      renderer.dispose();
+      group.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          const material = child.material;
+          if (Array.isArray(material)) material.forEach((entry) => entry.dispose());
+          else material.dispose();
+        }
+      });
+    };
+  }, [file]);
+
+  return (
+    <div className="part-preview">
+      <canvas ref={canvasRef} width={86} height={86} />
+      <div>
+        <strong>{label}</strong>
+        <small>{file.split("/").pop()}</small>
+      </div>
+    </div>
+  );
+}
+
+function fitPreviewObject(object: THREE.Object3D) {
+  const box = new THREE.Box3().setFromObject(object);
+  const size = new THREE.Vector3();
+  const center = new THREE.Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+  object.position.sub(center);
+  object.scale.multiplyScalar(1.35 / Math.max(size.x, size.y, size.z, 0.001));
 }
