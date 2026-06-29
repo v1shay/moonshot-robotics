@@ -605,15 +605,15 @@ function getTrainingPreviewParts(model: RobotModel) {
   if (model === "nova") {
     return [
       { label: "Fractured concrete and rebar", file: "/assets/training-demo/rover-debris-training/debris_01_fractured_concrete_rebar.stl" },
-      { label: "Rescue star patient marker", file: "/assets/training-demo/rover-debris-training/rescue_star_people_marker.stl" },
+      { label: "Disaster recovery person", file: "/assets/training-demo/rover-people/10688_GenericMale_v2.obj" },
       { label: "Broken pipe rubble cluster", file: "/assets/training-demo/rover-debris-training/debris_03_broken_pipe_rubble_cluster.stl" },
     ];
   }
 
   return [
-    { label: "Damaged conveyor frame", file: "/assets/training-demo/humanoid-factory-work/01_conveyor_support_frame_damaged.stl" },
-    { label: "Sparking control panel", file: "/assets/training-demo/humanoid-factory-work/07_sparking_control_panel_body_damaged.stl" },
-    { label: "Rain streak mesh cluster", file: "/assets/training-demo/humanoid-factory-work/21_rain_streaks_mesh_cluster.stl" },
+    { label: "Warehouse conveyor", file: "/assets/training-demo/humanoid-warehouse/conveyor_simple.stl" },
+    { label: "Open tote bin", file: "/assets/training-demo/humanoid-warehouse/tote_open_bin.stl" },
+    { label: "Package cube", file: "/assets/training-demo/humanoid-warehouse/package_cube.stl" },
   ];
 }
 
@@ -624,7 +624,7 @@ function makeTrainingCode(model: RobotModel) {
       ? "RecycleSort"
       : model === "nova"
         ? "DisasterRecoveryNavigation"
-        : "RainFactoryRepair";
+        : "WarehouseToteLoading";
 
   return `// Luna generated C++ training controller\n// target=${robot} task=${task}\n#include <ido/runtime/World.hpp>\n#include <ido/runtime/AssetQuery.hpp>\n#include <ido/control/TrajectoryOptimizer.hpp>\n#include <ido/control/PolicyGradient.hpp>\n#include <ido/vision/SemanticTracker.hpp>\n#include <moonshot/robots/${robot}.hpp>\n\nusing namespace ido;\nusing namespace moonshot;\n\nstruct RewardTerms {\n  float progress = 0.0f;\n  float contact = 0.0f;\n  float stability = 0.0f;\n  float completion = 0.0f;\n};\n\nclass Luna${task}Trainer {\n public:\n  Luna${task}Trainer(World& world, ${robot}& robot)\n      : world_(world), robot_(robot), assets_(world.assetQuery()),\n        tracker_(world.viewportCamera()), optimizer_(robot.kinematicTree()) {}\n\n  void buildScene() {\n    assets_.queryMongo(\"ido.assets\", \"robot=${robot};task=${task};quality=showcase\");\n    assets_.streamSequentially([&](const Asset& asset) {\n      world_.spawn(asset).withCollision(true).withMaterial(asset.suggestedMaterial());\n      world_.waitForViewportFrame();\n    });\n    tracker_.indexScene(world_);\n  }\n\n  void train() {\n    PolicyGradient policy(robot_.actionSpace());\n    for (int episode = 0; episode < 96; ++episode) {\n      world_.resetTaskState();\n      bool failedEarly = episode < 18;\n      for (int step = 0; step < 420; ++step) {\n        Observation obs = tracker_.observe(world_);\n        Action action = failedEarly ? policy.noisyAction(obs, 0.65f) : policy.action(obs);\n        Trajectory trajectory = optimizer_.solve(robot_.state(), action.targetPose, Constraints{\n          .avoidCollisions = true,\n          .smoothJoints = true,\n          .preserveBalance = ${model === "humanoid" ? "true" : "false"},\n          .respectGroundContact = true,\n        });\n        robot_.execute(trajectory);\n        RewardTerms reward = score(obs, action, failedEarly);\n        policy.update(obs, action, reward.progress + reward.contact + reward.stability + reward.completion);\n        if (reward.completion > 0.98f) break;\n      }\n      world_.logEpisode(episode, policy.lastReturn(), failedEarly ? \"exploration\" : \"refined\");\n    }\n    policy.freeze(\"moonshot_${task}_final.policy\");\n  }\n\n private:\n  RewardTerms score(const Observation& obs, const Action& action, bool failedEarly) {\n    RewardTerms r;\n    r.progress = taskProgress(obs);\n    r.contact = cleanContactScore(obs, action);\n    r.stability = robot_.stabilityMargin();\n    r.completion = failedEarly ? r.progress * 0.35f : taskCompletion(obs);\n    return r;\n  }\n\n  World& world_;\n  ${robot}& robot_;\n  AssetQuery assets_;\n  SemanticTracker tracker_;\n  TrajectoryOptimizer optimizer_;\n};\n\nint main() {\n  World world(\"current_viewport\");\n  ${robot} robot = world.spawn${robot}();\n  Luna${task}Trainer trainer(world, robot);\n  trainer.buildScene();\n  trainer.train();\n  world.playFinalPolicy(\"moonshot_${task}_final.policy\");\n  return 0;\n}\n`;
 }

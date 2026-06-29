@@ -1,0 +1,86 @@
+solid loading_zone_marker
+  facet normal 0 0 -1
+    outer loop
+      vertex -0.425 -0.325 0
+      vertex -0.425 0.325 0
+      vertex 0.425 0.325 0
+    endloop
+  endfacet
+  facet normal 0 0 -1
+    outer loop
+      vertex -0.425 -0.325 0
+      vertex 0.425 0.325 0
+      vertex 0.425 -0.325 0
+    endloop
+  endfacet
+  facet normal 0 0 1
+    outer loop
+      vertex -0.425 -0.325 0.012
+      vertex 0.425 -0.325 0.012
+      vertex 0.425 0.325 0.012
+    endloop
+  endfacet
+  facet normal 0 0 1
+    outer loop
+      vertex -0.425 -0.325 0.012
+      vertex 0.425 0.325 0.012
+      vertex -0.425 0.325 0.012
+    endloop
+  endfacet
+  facet normal 0 1 0
+    outer loop
+      vertex -0.425 0.325 0
+      vertex -0.425 0.325 0.012
+      vertex 0.425 0.325 0.012
+    endloop
+  endfacet
+  facet normal 0 1 0
+    outer loop
+      vertex -0.425 0.325 0
+      vertex 0.425 0.325 0.012
+      vertex 0.425 0.325 0
+    endloop
+  endfacet
+  facet normal 0 -1 0
+    outer loop
+      vertex -0.425 -0.325 0
+      vertex 0.425 -0.325 0
+      vertex 0.425 -0.325 0.012
+    endloop
+  endfacet
+  facet normal 0 -1 0
+    outer loop
+      vertex -0.425 -0.325 0
+      vertex 0.425 -0.325 0.012
+      vertex -0.425 -0.325 0.012
+    endloop
+  endfacet
+  facet normal 1 0 0
+    outer loop
+      vertex 0.425 -0.325 0
+      vertex 0.425 0.325 0
+      vertex 0.425 0.325 0.012
+    endloop
+  endfacet
+  facet normal 1 0 0
+    outer loop
+      vertex 0.425 -0.325 0
+      vertex 0.425 0.325 0.012
+      vertex 0.425 -0.325 0.012
+    endloop
+  endfacet
+  facet normal -1 0 0
+    outer loop
+      vertex -0.425 -0.325 0
+      vertex -0.425 -0.325 0.012
+      vertex -0.425 0.325 0.012
+    endloop
+  endfacet
+  facet normal -1 0 0
+    outer loop
+      vertex -0.425 -0.325 0
+      vertex -0.425 0.325 0.012
+      vertex -0.425 0.325 0
+    endloop
+  endfacet
+endsolid loading_zone_marker

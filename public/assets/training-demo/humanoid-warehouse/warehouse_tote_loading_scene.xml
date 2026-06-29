@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<warehouse_tote_loading_scene units="meters" up_axis="Z" forward_axis="Y" right_axis="X">
+  <task>
+    <name>warehouse_tote_loading</name>
+    <description>
+      Simple humanoid manipulation task: pick packages from the conveyor and place them into the open tote bin.
+      Keep all STL meshes axis-aligned. Do not rotate any mesh unless rotation is explicitly listed below.
+    </description>
+    <success_condition>
+      Place all package objects inside tote_open_bin without crossing the tote walls. Package bottoms should be above the tote floor.
+    </success_condition>
+  </task>
+
+  <coordinate_convention>
+    <units>meters</units>
+    <origin_rule>Every STL origin is bottom-center of its bounding box.</origin_rule>
+    <orientation_rule>Z-up. X is left-right. Y is front-back. All files are exported already upright.</orientation_rule>
+    <threejs_rule>
+      Load with STLLoader, create Mesh, set mesh.position from the placement values, and leave mesh.rotation at 0,0,0 unless rotation_deg is specified.
+      If using three.js default coordinates, this scene already matches three.js Y-horizontal/Z-up conventions when you treat Z as vertical in your controls/physics layer.
+    </threejs_rule>
+  </coordinate_convention>
+
+  <assets>
+    <asset id="conveyor" file="conveyor_simple.stl" dims="1.50 0.50 0.44" origin="bottom_center" role="package_spawn_surface" />
+    <asset id="tote" file="tote_open_bin.stl" dims="0.70 0.50 0.28" origin="bottom_center" role="target_container" />
+    <asset id="shelf" file="shelf_unit.stl" dims="1.20 0.45 1.20" origin="bottom_center" role="background_static_prop" />
+    <asset id="pallet" file="pallet_simple.stl" dims="0.80 0.48 0.11" origin="bottom_center" role="background_static_prop" />
+    <asset id="loading_zone" file="loading_zone_marker.stl" dims="0.85 0.65 0.012" origin="bottom_center" role="target_area_marker" />
+    <asset id="package_cube" file="package_cube.stl" dims="0.30 0.30 0.30" origin="bottom_center" role="graspable_object" />
+    <asset id="package_rect" file="package_rect.stl" dims="0.42 0.28 0.20" origin="bottom_center" role="graspable_object" />
+    <asset id="package_flat" file="package_flat.stl" dims="0.36 0.24 0.12" origin="bottom_center" role="graspable_object" />
+  </assets>
+
+  <recommended_scene_layout>
+    <object name="conveyor_01" asset="conveyor" position="-0.95 0.00 0.00" rotation_deg="0 0 0" static="true" />
+    <object name="loading_zone_01" asset="loading_zone" position="0.25 0.00 0.00" rotation_deg="0 0 0" static="true" />
+    <object name="tote_01" asset="tote" position="0.25 0.00 0.012" rotation_deg="0 0 0" static="true" />
+    <object name="shelf_01" asset="shelf" position="0.35 -1.00 0.00" rotation_deg="0 0 0" static="true" />
+    <object name="pallet_01" asset="pallet" position="1.05 0.65 0.00" rotation_deg="0 0 0" static="true" />
+
+    <!-- Packages start on top of the conveyor. Their z positions equal conveyor belt height plus package half-height. -->
+    <object name="package_A" asset="package_cube" position="-1.10 -0.10 0.5275" rotation_deg="0 0 0" static="false" mass="0.8" />
+    <object name="package_B" asset="package_rect" position="-0.82 0.11 0.4775" rotation_deg="0 0 0" static="false" mass="0.7" />
+    <object name="package_C" asset="package_flat" position="-1.36 0.08 0.4375" rotation_deg="0 0 0" static="false" mass="0.5" />
+  </recommended_scene_layout>
+
+  <robot_task_interface>
+    <spawn_area center="-1.05 0.00 0.40" size="0.75 0.40 0.05" description="Top surface of conveyor, where packages begin." />
+    <target_container center="0.25 0.00 0.15" inner_dims="0.63 0.43 0.245" description="Inside of tote. Place packages here." />
+    <suggested_robot_base position="-0.25 0.85 0.00" facing="toward_negative_Y" />
+    <movement_note>
+      This task only needs short reach, wrist alignment, grasp, lift 0.15-0.35m, translate, lower, and release. No walking required.
+    </movement_note>
+  </robot_task_interface>
+</warehouse_tote_loading_scene>
