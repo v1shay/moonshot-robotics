@@ -144,6 +144,7 @@ button:hover {
 }
 
 .app-grid {
+  position: relative;
   height: calc(100% - 46px);
   display: grid;
   grid-template-columns: 48px minmax(560px, 1fr) minmax(330px, 30vw);
@@ -236,11 +237,26 @@ button:hover {
   height: 24px;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding-left: 12px;
+  padding-right: 8px;
   background: #202426;
   border-bottom: 1px solid #101315;
   color: #aab0b3;
   font-weight: 700;
+}
+
+.overlay-launchers {
+  display: flex;
+  gap: 5px;
+}
+
+.overlay-launchers button {
+  height: 20px;
+  min-height: 20px;
+  padding: 0 8px;
+  font-size: 11px;
+  background: #303436;
 }
 
 .viewport-toolbar {
@@ -469,8 +485,7 @@ button:hover {
 
 .right-column {
   min-width: 0;
-  display: grid;
-  grid-template-rows: 47% 53%;
+  display: block;
   background: #444748;
 }
 
@@ -545,6 +560,7 @@ button:hover {
 }
 
 .chat-panel {
+  height: 100%;
   display: grid;
   grid-template-rows: 30px 35px 170px 1fr 82px;
   background: #444748;
@@ -576,8 +592,38 @@ button:hover {
 .messages {
   min-height: 0;
   overflow: auto;
+  scroll-behavior: smooth;
   padding: 10px;
   background: #3f4243;
+}
+
+.stage-overlay {
+  position: absolute;
+  top: 84px;
+  right: calc(30vw + 16px);
+  width: min(420px, 34vw);
+  height: 360px;
+  z-index: 5;
+  display: grid;
+  grid-template-rows: 34px 36px 1fr;
+  background: #282c2e;
+  border: 1px solid #5b6265;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+
+.overlay-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 0 12px;
+  background: #3d4143;
+  border-bottom: 1px solid #171a1c;
+}
+
+.overlay-head button {
+  height: 23px;
+  min-height: 23px;
+  padding: 0 8px;
 }
 
 .code-panel {

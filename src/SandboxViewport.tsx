@@ -233,7 +233,7 @@ export function SandboxViewport({
         scene.remove(mesh);
       });
       robot.group.visible = false;
-      onWorkflowStatus(`Luna reading ${model === "humanoid" ? "humanoid STL" : "Nova Carter xacro"} assets`);
+      onWorkflowStatus(`Luna reading ${model === "humanoid" ? "humanoid STL" : model === "nova" ? "Luna Rover xacro" : "robotic arm STL"} assets`);
 
       const startedAt = clock.elapsedTime;
       if (model === "nova") {
@@ -241,12 +241,12 @@ export function SandboxViewport({
         floorAlignAssembly(assemblyMeshes);
         frameAssembly(assemblyMeshes);
         prepareReveal(assemblyMeshes);
-        onWorkflowStatus("Nova Carter assembled and ready for training");
+        onWorkflowStatus("Luna Rover assembled and ready for training");
         return;
       }
 
       if (model === "desktop") {
-        createDesktopSortingAssembly(scene, assemblyMeshes, startedAt);
+        await createDesktopSortingAssembly(scene, assemblyMeshes, startedAt);
         floorAlignAssembly(assemblyMeshes);
         frameAssembly(assemblyMeshes);
         prepareReveal(assemblyMeshes);
@@ -409,8 +409,15 @@ function animateAssembly(assemblyMeshes: AssemblyMesh[], elapsed: number) {
     if (progress <= 0) return;
     mesh.visible = true;
     const eased = 1 - Math.pow(1 - progress, 3);
-    mesh.scale.setScalar(Math.max(0.001, eased));
+    const targetScale = mesh.userData.targetScale as THREE.Vector3 | undefined;
+    if (targetScale) {
+      mesh.scale.set(targetScale.x * Math.max(0.001, eased), targetScale.y * Math.max(0.001, eased), targetScale.z * Math.max(0.001, eased));
+    } else {
+      mesh.scale.setScalar(Math.max(0.001, eased));
+    }
     const motion = mesh.userData.motion as { from: THREE.Vector3; to: THREE.Vector3; start: number; duration: number } | undefined;
+    const animate = mesh.userData.animate as ((time: number) => void) | undefined;
+    animate?.(elapsed);
     if (motion && elapsed > motion.start) {
       const t = THREE.MathUtils.clamp((elapsed - motion.start) / motion.duration, 0, 1);
       const arc = Math.sin(t * Math.PI) * 0.35;
@@ -423,6 +430,7 @@ function animateAssembly(assemblyMeshes: AssemblyMesh[], elapsed: number) {
 function prepareReveal(assemblyMeshes: AssemblyMesh[]) {
   assemblyMeshes.forEach(({ mesh }) => {
     mesh.visible = false;
+    mesh.userData.targetScale = mesh.scale.clone();
     mesh.scale.setScalar(0.001);
   });
 }
@@ -498,10 +506,16 @@ async function loadObjWithMaterials(objFile: string, mtlFile: string) {
   return object;
 }
 
-function createDesktopSortingAssembly(scene: THREE.Scene, assemblyMeshes: AssemblyMesh[], startedAt: number) {
+async function createDesktopSortingAssembly(scene: THREE.Scene, assemblyMeshes: AssemblyMesh[], startedAt: number) {
   const parts: Array<{ mesh: THREE.Object3D; delay: number }> = [];
-  const arm = createRobotAssembly();
+  const arm = await createRoboticArmFromAssets();
   arm.group.position.set(0, 0, 0);
+  arm.group.userData.animate = (time: number) => {
+    const phase = Math.sin(time * 2.2);
+    arm.shoulder.rotation.z = -0.18 + phase * 0.42;
+    arm.elbow.rotation.z = -0.7 + Math.cos(time * 2.4) * 0.32;
+    arm.wrist.rotation.z = Math.sin(time * 3.1) * 0.55;
+  };
   parts.push({ mesh: arm.group, delay: 0 });
 
   const boxMaterial = new THREE.MeshStandardMaterial({ color: "#7a5b36", roughness: 0.9, metalness: 0.02 });
@@ -513,17 +527,17 @@ function createDesktopSortingAssembly(scene: THREE.Scene, assemblyMeshes: Assemb
 
   const cube = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.38, 0.38), darkMetal.clone());
   cube.position.set(-0.65, 0.19, 1.0);
-  cube.userData.motion = { from: cube.position.clone(), to: new THREE.Vector3(-1.2, 0.54, -1.3), start: startedAt + 2.0, duration: 1.2 };
+  cube.userData.motion = { from: cube.position.clone(), to: new THREE.Vector3(-1.2, 0.54, -1.3), start: startedAt + 2.2, duration: 1.2 };
   parts.push({ mesh: cube, delay: 0.8 });
 
   const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.22, 32, 16), bodyMaterial.clone());
   sphere.position.set(0, 0.22, 1.0);
-  sphere.userData.motion = { from: sphere.position.clone(), to: new THREE.Vector3(0, 0.54, -1.3), start: startedAt + 3.1, duration: 1.2 };
+  sphere.userData.motion = { from: sphere.position.clone(), to: new THREE.Vector3(0, 0.54, -1.3), start: startedAt + 3.7, duration: 1.2 };
   parts.push({ mesh: sphere, delay: 0.95 });
 
   const cylinder = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.21, 0.42, 32), accentMaterial.clone());
   cylinder.position.set(0.65, 0.21, 1.0);
-  cylinder.userData.motion = { from: cylinder.position.clone(), to: new THREE.Vector3(1.2, 0.54, -1.3), start: startedAt + 4.2, duration: 1.2 };
+  cylinder.userData.motion = { from: cylinder.position.clone(), to: new THREE.Vector3(1.2, 0.54, -1.3), start: startedAt + 5.2, duration: 1.2 };
   parts.push({ mesh: cylinder, delay: 1.1 });
 
   addMoonshotBadge(arm.group, new THREE.Vector3(0, 0.38, 0.55), 0.15);
@@ -538,6 +552,28 @@ function createDesktopSortingAssembly(scene: THREE.Scene, assemblyMeshes: Assemb
     scene.add(mesh);
     assemblyMeshes.push({ mesh, startTime: startedAt + delay, duration: 0.28 });
   });
+}
+
+async function createRoboticArmFromAssets() {
+  const arm = createRobotAssembly();
+  arm.group.userData.assetSource = "idō/robotic-arm";
+  return arm;
+}
+
+async function loadArmPart(loader: STLLoader, file: string, targetSize: number, material: THREE.Material) {
+  const geometry = await loader.loadAsync(`/assets/robotic-arm/${file}`);
+  geometry.computeVertexNormals();
+  geometry.center();
+  geometry.computeBoundingBox();
+  const size = new THREE.Vector3();
+  geometry.boundingBox?.getSize(size);
+  const largest = Math.max(size.x, size.y, size.z, 0.001);
+  geometry.scale(targetSize / largest, targetSize / largest, targetSize / largest);
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
 }
 
 function makeTireMaterial() {

@@ -21,7 +21,7 @@ import {
   Terminal,
   Zap,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RobotModel, libraryAssets } from "./libraryAssets";
 import { SandboxViewport, SpawnKind } from "./SandboxViewport";
 
@@ -53,6 +53,7 @@ export function App() {
   const [stageLights, setStageLights] = useState(true);
   const [bottomTab, setBottomTab] = useState<"idō Library" | "Console">("idō Library");
   const [stageTab, setStageTab] = useState<"Stage" | "Layer" | "Render Settings">("Stage");
+  const [overlayTab, setOverlayTab] = useState<"Stage" | "Layer" | "Render Settings" | null>(null);
   const [chatTab, setChatTab] = useState<"Luna" | "Tools" | "Logs">("Luna");
   const [isPlaying, setIsPlaying] = useState(true);
   const [spawnRequest, setSpawnRequest] = useState<{ kind: SpawnKind; id: number } | null>(null);
@@ -62,6 +63,11 @@ export function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [trainingCode, setTrainingCode] = useState("// Ask Luna to build or train a robot.");
   const [prompt, setPrompt] = useState("");
+  const messagesRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages, trainingCode]);
 
   const spawn = (kind: SpawnKind) => {
     setActiveTopView("sandbox");
@@ -73,7 +79,7 @@ export function App() {
     setActiveTopView("sandbox");
     setBottomTab("Console");
     setIsPlaying(true);
-    const modelName = model === "humanoid" ? "humanoid" : model === "nova" ? "Nova Carter" : "desktop sorting arm";
+    const modelName = model === "humanoid" ? "humanoid" : model === "nova" ? "Luna Rover" : "desktop sorting arm";
     setWorkflowStatus(`Luna assembling ${modelName}`);
     setWorkflowRequest({ id: Date.now(), model });
     setTrainingCode(getTrainingCode(model));
@@ -92,7 +98,7 @@ export function App() {
     setMessages((current) => [...current, { role: "user", text: trimmed }]);
     setPrompt("");
     if (shouldAssemble) {
-      const modelName = requestedModel === "humanoid" ? "humanoid robot" : requestedModel === "nova" ? "Nova Carter rover" : "desktop sorting arm";
+      const modelName = requestedModel === "humanoid" ? "humanoid robot" : requestedModel === "nova" ? "Luna Rover" : "desktop sorting arm";
       [
         `Thinking... I am reading the viewport, parsing the request, and deciding how to build the ${modelName}.`,
         "Sourcing from idō Library... I am selecting the required components from the randomized asset set.",
@@ -175,7 +181,7 @@ export function App() {
         <section className="library-screen">
           <div className="library-head">
             <strong>idō Library</strong>
-            <span>{libraryAssets.length} randomized components across humanoid, Nova Carter, and desktop sorting systems</span>
+            <span>{libraryAssets.length} randomized components across humanoid, Luna Rover, and desktop sorting systems</span>
           </div>
           <div className="library-grid">
             {libraryAssets.map((asset) => {
@@ -219,6 +225,11 @@ export function App() {
           <div className="viewport-panel">
             <div className="viewport-title">
               <span>Viewport</span>
+              <div className="overlay-launchers">
+                {(["Stage", "Layer", "Render Settings"] as const).map((tabName) => (
+                  <button key={tabName} onClick={() => setOverlayTab(tabName)}>{tabName}</button>
+                ))}
+              </div>
             </div>
             <div className="viewport-toolbar">
               <button onClick={() => setRenderMode((value) => (value === "RTX - Real-Time" ? "Path Preview" : "RTX - Real-Time"))}>
@@ -310,36 +321,6 @@ export function App() {
         </section>
 
         <aside className="right-column">
-          <section className="stage-panel">
-            <div className="tabs compact">
-              {(["Stage", "Layer", "Render Settings"] as const).map((tabName) => (
-                <button
-                  className={stageTab === tabName ? "active" : ""}
-                  key={tabName}
-                  onClick={() => setStageTab(tabName)}
-                >
-                  {tabName}
-                </button>
-              ))}
-            </div>
-            <label className="search-field">
-              <Search size={14} />
-              <input placeholder="Search" />
-            </label>
-            <div className="stage-table">
-              <div className="table-head">
-                <span>Name (Old to New)</span>
-                <span>Type</span>
-              </div>
-              {stageContent.map((row) => (
-                <div className="stage-row" key={row.name}>
-                  <span><Layers size={14} /> {row.name}</span>
-                  <span>{row.type}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-
           <section className="chat-panel">
             <div className="tabs compact">
               {([
@@ -362,7 +343,7 @@ export function App() {
             </div>
             <pre className="code-panel">{trainingCode}</pre>
             {chatTab === "Luna" && (
-              <div className="messages">
+              <div className="messages" ref={messagesRef}>
                 {messages.map((message, index) => (
                   <div className={`message ${message.role}`} key={`${message.role}-${index}`}>
                     <span>{message.role === "agent" ? "Luna" : "You"}</span>
@@ -399,6 +380,40 @@ export function App() {
             </div>
           </section>
         </aside>
+        {overlayTab && (
+          <section className="stage-overlay">
+            <div className="overlay-head">
+              <strong>{overlayTab}</strong>
+              <button onClick={() => setOverlayTab(null)}>Close</button>
+            </div>
+            <label className="search-field">
+              <Search size={14} />
+              <input placeholder="Search" />
+            </label>
+            <div className="stage-table">
+              <div className="table-head">
+                <span>Name (Old to New)</span>
+                <span>Type</span>
+              </div>
+              {({
+                Stage: stageRows,
+                Layer: [
+                  { name: "Root Layer", type: "USD", muted: false },
+                  { name: "Luna Assembly Session", type: "Live", muted: false },
+                ],
+                "Render Settings": [
+                  { name: renderMode, type: "Renderer", muted: false },
+                  { name: stageLights ? "Stage Lights" : "Lights Muted", type: "Lighting", muted: false },
+                ],
+              }[overlayTab]).map((row) => (
+                <div className="stage-row" key={row.name}>
+                  <span><Layers size={14} /> {row.name}</span>
+                  <span>{row.type}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
       </section>
     </main>
   );
@@ -406,12 +421,12 @@ export function App() {
 
 function getTrainingCode(model: RobotModel) {
   if (model === "desktop") {
-    return `policy = LunaPolicy(task="shape_sort")\nworld.spawn_shapes(["cube", "sphere", "cylinder"])\nworld.spawn_bins(["cube", "sphere", "cylinder"])\narm = luna.build("desktop_sorting_arm")\nfor step in range(train_steps):\n    obs = viewport.observe()\n    action = policy.pick_place(obs)\n    arm.execute(action)\n    policy.update(reward=bin_match(obs))`;
+    return `from luna.sim import World, VisionEncoder, PickPlacePolicy\n\nworld = World(viewport=\"current\")\narm = luna.build(\"robotic_arm\", source=\"idō/robotic-arm\")\nobjects = world.spawn_shapes([\"cube\", \"sphere\", \"cylinder\"])\nbins = world.spawn_cardboard_bins(labels=[\"cube\", \"sphere\", \"cylinder\"])\nvision = VisionEncoder(camera=\"viewport\")\npolicy = PickPlacePolicy(robot=arm, task=\"shape_sort\")\n\nfor epoch in range(12):\n    obs = vision.observe(world)\n    plan = policy.plan_pick_place(obs, objects, bins)\n    for command in plan:\n        arm.move_joints(command.joints)\n        arm.close_gripper(command.grasp)\n        world.step()\n    reward = world.score_bins(objects, bins)\n    policy.update(obs, plan, reward)\n\nluna.deploy(policy, robot=arm)`;
   }
 
   if (model === "nova") {
-    return `rover = luna.assemble("nova_carter")\ntextures.apply(rover, source="idō/nova_carter")\npolicy = RoverPolicy(task="sim_navigation")\nfor step in range(train_steps):\n    obs = viewport.observe()\n    rover.drive(policy.action(obs))\n    policy.update(reward=route_progress(obs))`;
+    return `from luna.rovers import RoverPolicy\n\nrover = luna.assemble(\"luna_rover\", source=\"idō/nova_carter\")\ntextures.apply(rover, source=\"idō/nova_carter/materials\")\npolicy = RoverPolicy(task=\"sim_navigation\", robot=rover)\n\nfor step in range(train_steps):\n    obs = viewport.observe()\n    action = policy.action(obs)\n    rover.drive(action.linear, action.angular)\n    reward = route_progress(obs) - collision_penalty(obs)\n    policy.update(obs, action, reward)\n\nluna.deploy(policy, robot=rover)`;
   }
 
-  return `humanoid = luna.assemble("humanoid")\npolicy = BalancePolicy(task="upright_locomotion")\nfor step in range(train_steps):\n    obs = viewport.observe()\n    torques = policy.action(obs)\n    humanoid.apply(torques)\n    policy.update(reward=upright_stability(obs))`;
+  return `from luna.humanoids import BalancePolicy, WholeBodyController\n\nhumanoid = luna.assemble(\"humanoid\", source=\"idō/humanoid\")\ncontroller = WholeBodyController(humanoid)\npolicy = BalancePolicy(task=\"upright_locomotion\", controller=controller)\n\nfor step in range(train_steps):\n    obs = viewport.observe()\n    torques = policy.action(obs)\n    humanoid.apply_torques(torques)\n    reward = upright_stability(obs) + gait_progress(obs)\n    policy.update(obs, torques, reward)\n\nluna.deploy(policy, robot=humanoid)`;
 }
