@@ -444,33 +444,45 @@ async function createNovaCarterAssembly(scene: THREE.Scene, assemblyMeshes: Asse
   const chassis = await loadObjWithMaterials("chassis_link.obj", "chassis_link.mtl");
   root.add(chassis);
 
+  const driveAxleZ = 0.14;
+  const driveY = 0.1726;
+  const rearX = -0.49;
+  const rearY = 0.185;
+  const rearWheelZ = driveAxleZ;
+  const suspensionMaterial = new THREE.MeshStandardMaterial({ color: "#4c575b", roughness: 0.48, metalness: 0.58 });
+  root.add(createLinkCylinder(new THREE.Vector3(0, -driveY, driveAxleZ), new THREE.Vector3(0, driveY, driveAxleZ), 0.018, suspensionMaterial.clone()));
+
   const leftWheel = await loadObjWithMaterials("nova_carter_wheel_left.obj", "nova_carter_wheel_right.mtl");
-  leftWheel.position.set(0, 0.1726, 0.14);
+  leftWheel.position.set(0, driveY, driveAxleZ);
   leftWheel.rotation.x = -Math.PI / 2;
   root.add(leftWheel);
 
   const rightWheel = await loadObjWithMaterials("nova_carter_wheel_right.obj", "nova_carter_wheel_right.mtl");
-  rightWheel.position.set(0, -0.1726, 0.14);
+  rightWheel.position.set(0, -driveY, driveAxleZ);
   rightWheel.rotation.x = -Math.PI / 2;
   root.add(rightWheel);
 
   const casterFrame = await loadObjWithMaterials("caster_frame_base.obj", "caster_frame_base.mtl");
-  casterFrame.position.set(-0.47195, 0, 0.22289);
+  casterFrame.position.set(rearX, 0, 0.22289);
   casterFrame.rotation.set(-Math.PI / 2, 0, Math.PI / 2);
   root.add(casterFrame);
+  root.add(createLinkCylinder(new THREE.Vector3(rearX, -rearY, rearWheelZ), new THREE.Vector3(rearX, rearY, rearWheelZ), 0.014, suspensionMaterial.clone()));
 
   for (const side of [-1, 1]) {
     const swivel = await loadObjWithMaterials("caster_swivel.obj", "caster_swivel.mtl");
-    swivel.position.set(-0.47195 + side * 0.13225, 0.03119, 0.22289);
+    const hub = new THREE.Vector3(rearX, side * rearY, rearWheelZ);
+    const socket = new THREE.Vector3(-0.24, side * 0.11, 0.245);
+    swivel.position.set(hub.x, hub.y, 0.215);
     root.add(swivel);
 
     const casterWheel = await loadObjWithMaterials("caster_wheel.obj", "caster_wheel.mtl");
-    casterWheel.position.set(-0.58735 + side * 0.13225, 0.0082, 0.26289);
+    casterWheel.position.copy(hub);
     casterWheel.rotation.set(Math.PI / 2, -Math.PI / 2, 0);
     root.add(casterWheel);
+
+    root.add(createLinkCylinder(socket, hub, 0.014, suspensionMaterial.clone()));
   }
 
-  addMoonshotBadge(root, new THREE.Vector3(0.22, -0.18, 0.37), 0.028);
   root.traverse((child) => {
     if (child instanceof THREE.Mesh) {
       child.castShadow = true;
@@ -878,6 +890,17 @@ function addMoonshotBadge(parent: THREE.Object3D, position: THREE.Vector3, scale
   badge.position.copy(position);
   badge.rotation.x = Math.PI / 2;
   parent.add(badge);
+}
+
+function createLinkCylinder(from: THREE.Vector3, to: THREE.Vector3, radius: number, material: THREE.Material) {
+  const direction = new THREE.Vector3().subVectors(to, from);
+  const length = Math.max(direction.length(), 0.001);
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, length, 18), material);
+  mesh.position.copy(from).add(to).multiplyScalar(0.5);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
 }
 
 function createMoonshotGrid() {
