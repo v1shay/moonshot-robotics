@@ -89,11 +89,11 @@ export function App() {
     const trimmed = prompt.trim();
     if (!trimmed) return;
 
-    const shouldAssemble = /\b(assemble|build|robot|train|training|nova|carter|rover|humanoid|unitree|g1|franka|panda|desktop|arm|sort|sorting|boxes)\b/i.test(trimmed);
+    const shouldAssemble = /\b(assemble|build|construct|generate|make|spawn|create|fabricate|rig|robot|train|training|nova|carter|rover|vehicle|drive|humanoid|biped|walker|unitree|g1|franka|panda|desktop|arm|manipulator|sort|sorting|boxes|pick|place)\b/i.test(trimmed);
     const shouldTrain = /\b(train|training|sort|sorting|boxes|cube|sphere|cylinder|task)\b/i.test(trimmed);
-    const requestedModel: RobotModel = /\b(nova|carter|rover)\b/i.test(trimmed)
+    const requestedModel: RobotModel = /\b(nova|carter|rover|vehicle|drive|wheeled|mobile)\b/i.test(trimmed)
       ? "nova"
-      : /\b(franka|panda|desktop|arm|sort|sorting|boxes)\b/i.test(trimmed)
+      : /\b(franka|panda|desktop|arm|manipulator|pick|place|sort|sorting|boxes)\b/i.test(trimmed)
         ? "desktop"
         : "humanoid";
     setMessages((current) => [...current, { role: "user", text: trimmed }]);
@@ -102,8 +102,9 @@ export function App() {
       const modelName = requestedModel === "humanoid" ? "Unitree G1 humanoid" : requestedModel === "nova" ? "Luna Rover" : shouldTrain ? "Franka Panda sorting cell" : "Franka Panda arm";
       [
         `Thinking... I am reading the viewport, parsing the request, and deciding how to build the ${modelName}.`,
-        "Sourcing from idō Library... I am selecting the required components from the randomized asset set.",
-        "Assembling pieces... I am placing parts into the sandbox one at a time and checking alignment in the viewport.",
+        "Querying idō DB... I am asking the MongoDB-backed index for candidate joints, meshes, materials, and assembly constraints in sequence.",
+        "Sourcing from idō Library... I am pulling each selected piece into the work queue one by one and validating where it belongs.",
+        "Assembling pieces... I am streaming the parts into the sandbox sequentially and checking alignment in the viewport.",
         requestedModel === "desktop" && shouldTrain
           ? "Training... I am spawning shapes and bins, then running the sorting policy."
           : shouldTrain
