@@ -221,12 +221,10 @@ button:hover {
   color: #c2c7c9;
   font-weight: 700;
   pointer-events: auto;
+  white-space: nowrap;
 }
 
-.viewport-toolbar button:first-child,
-.viewport-toolbar button:nth-child(3),
-.viewport-toolbar button:nth-child(5),
-.viewport-toolbar button:last-child {
+.viewport-toolbar button[aria-label] {
   width: 32px;
   padding: 0;
 }

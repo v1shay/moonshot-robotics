@@ -5,12 +5,9 @@ import {
   Cpu,
   Crosshair,
   Database,
-  Gauge,
-  Grid3X3,
   Layers,
   Lightbulb,
   LocateFixed,
-  Maximize,
   MessageSquare,
   Move3D,
   Pause,
@@ -20,14 +17,13 @@ import {
   Search,
   Send,
   Settings,
-  SlidersHorizontal,
   Sparkles,
   Terminal,
   Zap,
 } from "lucide-react";
 import { useState } from "react";
+import { RobotModel, libraryAssets } from "./libraryAssets";
 import { SandboxViewport, SpawnKind } from "./SandboxViewport";
-import { humanoidAssets } from "./humanoidAssets";
 
 type ChatMessage = {
   role: "agent" | "user";
@@ -41,7 +37,7 @@ const stageRows = [
   { name: "PhysicsScene", type: "Scope", muted: true },
 ];
 
-const assets = [
+const quickAssets = [
   { name: "Manipulator Arm", meta: "URDF-ready rig", icon: Bot },
   { name: "Drive Base", meta: "Wheeled platform", icon: Cpu },
   { name: "Sensor Mast", meta: "Camera/LiDAR slot", icon: LocateFixed },
@@ -55,13 +51,13 @@ export function App() {
   const [renderMode, setRenderMode] = useState("RTX - Real-Time");
   const [cameraMode, setCameraMode] = useState("Perspective");
   const [stageLights, setStageLights] = useState(true);
-  const [bottomTab, setBottomTab] = useState<"Content" | "Robot Assets" | "Console" | "Flow">("Robot Assets");
+  const [bottomTab, setBottomTab] = useState<"idō Library" | "Console">("idō Library");
   const [stageTab, setStageTab] = useState<"Stage" | "Layer" | "Render Settings">("Stage");
   const [chatTab, setChatTab] = useState<"Luna" | "Tools" | "Logs">("Luna");
   const [isPlaying, setIsPlaying] = useState(true);
   const [spawnRequest, setSpawnRequest] = useState<{ kind: SpawnKind; id: number } | null>(null);
   const [resetSignal, setResetSignal] = useState(0);
-  const [workflowRequest, setWorkflowRequest] = useState<{ id: number } | null>(null);
+  const [workflowRequest, setWorkflowRequest] = useState<{ id: number; model: RobotModel } | null>(null);
   const [workflowStatus, setWorkflowStatus] = useState("Idle");
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -70,7 +66,7 @@ export function App() {
     },
     {
       role: "agent",
-      text: `idō Library indexed ${humanoidAssets.length} humanoid STL assets. Ask me to assemble the humanoid and I will stream the build into the sandbox.`,
+      text: `idō Library indexed ${libraryAssets.length} assets across the humanoid and Nova Carter packages. Ask me to assemble either robot.`,
     },
   ]);
   const [prompt, setPrompt] = useState("");
@@ -81,17 +77,17 @@ export function App() {
     setSpawnRequest({ kind, id: Date.now() });
   };
 
-  const runAssemblyWorkflow = () => {
+  const runAssemblyWorkflow = (model: RobotModel) => {
     setActiveTopView("sandbox");
-    setBottomTab("Flow");
+    setBottomTab("Console");
     setIsPlaying(true);
-    setWorkflowStatus("Assembling humanoid");
-    setWorkflowRequest({ id: Date.now() });
+    setWorkflowStatus(`Luna assembling ${model === "humanoid" ? "humanoid" : "Nova Carter"}`);
+    setWorkflowRequest({ id: Date.now(), model });
     setMessages((current) => [
       ...current,
       {
         role: "agent",
-        text: "Starting humanoid assembly. I will place the core, legs, arms, hands, head, and logo link in sequence, then switch to training readiness.",
+        text: `I am assembling the ${model === "humanoid" ? "humanoid robot" : "Nova Carter"} directly from the idō assets. Parts will appear only when I place them.`,
       },
     ]);
   };
@@ -100,20 +96,21 @@ export function App() {
     const trimmed = prompt.trim();
     if (!trimmed) return;
 
-    const shouldAssemble = /\b(assemble|build|humanoid|robot|train|training)\b/i.test(trimmed);
+    const shouldAssemble = /\b(assemble|build|robot|train|training|nova|carter|humanoid)\b/i.test(trimmed);
+    const requestedModel: RobotModel = /\b(nova|carter)\b/i.test(trimmed) ? "nova" : "humanoid";
     setMessages((current) => [
       ...current,
       { role: "user", text: trimmed },
       {
         role: "agent",
         text: shouldAssemble
-          ? "Understood. I am starting the humanoid assembly workflow from the idō Library assets."
-          : "Queued. I can inspect the stage, spawn primitives, or assemble the humanoid when you ask.",
+          ? `Understood. I am assembling the ${requestedModel === "humanoid" ? "humanoid" : "Nova Carter"} from the idō Library.`
+          : "Queued. I can inspect the stage, spawn primitives, or assemble either robot when you ask.",
       },
     ]);
     setPrompt("");
     if (shouldAssemble) {
-      window.setTimeout(runAssemblyWorkflow, 80);
+      window.setTimeout(() => runAssemblyWorkflow(requestedModel), 80);
     }
   };
 
@@ -121,10 +118,8 @@ export function App() {
     { label: "Select", icon: Move3D },
     { label: "Move", icon: Crosshair },
     { label: "Rotate", icon: RotateCw },
-    { label: "Scale", icon: Maximize },
-    { label: "Snap", icon: Grid3X3 },
     { label: isPlaying ? "Pause" : "Play", icon: isPlaying ? Pause : Play },
-    { label: "Assemble", icon: Bot },
+    { label: "Reset", icon: RotateCcw },
   ];
 
   const selectAsset = (label: string, source: string) => {
@@ -135,7 +130,7 @@ export function App() {
         role: "agent",
         text:
           source === "library"
-            ? `${label} selected from idō Library. Ask me to assemble to place it in the full humanoid workflow.`
+            ? `${label} selected from idō Library. I can place it as part of the correct robot assembly.`
             : `${label} selected. I can spawn a matching robot placeholder or use it in the assembly flow.`,
       },
     ]);
@@ -170,8 +165,8 @@ export function App() {
           <button
             className={activeTopView === "library" ? "active" : ""}
             onClick={() => {
-              setActiveTopView("library");
-              setBottomTab("Robot Assets");
+                  setActiveTopView("library");
+              setBottomTab("idō Library");
             }}
           >
             idō Library
@@ -196,7 +191,7 @@ export function App() {
                 onClick={() => {
                   setActiveTool(tool.label);
                   if (tool.label === "Pause" || tool.label === "Play") setIsPlaying((value) => !value);
-                  if (tool.label === "Assemble") runAssemblyWorkflow();
+                  if (tool.label === "Reset") setResetSignal((value) => value + 1);
                 }}
               >
                 <Icon />
@@ -211,17 +206,8 @@ export function App() {
               <span>Viewport</span>
             </div>
             <div className="viewport-toolbar">
-              <button
-                aria-label="Render settings"
-                onClick={() => setRenderMode((value) => (value === "RTX - Real-Time" ? "Path Preview" : "RTX - Real-Time"))}
-              >
-                <SlidersHorizontal size={18} />
-              </button>
               <button onClick={() => setRenderMode((value) => (value === "RTX - Real-Time" ? "Path Preview" : "RTX - Real-Time"))}>
                 <Lightbulb size={16} /> {renderMode}
-              </button>
-              <button aria-label="Frame scene" onClick={() => setWorkflowStatus("Viewport framed to robot assembly")}>
-                <Gauge size={18} />
               </button>
               <button onClick={() => setCameraMode((value) => (value === "Perspective" ? "Orthographic" : "Perspective"))}>
                 <Cpu size={16} /> {cameraMode}
@@ -251,7 +237,7 @@ export function App() {
 
           <section className="bottom-panel">
             <div className="tabs">
-              {(["Content", "Robot Assets", "Console", "Flow"] as const).map((tabName) => (
+              {(["idō Library", "Console"] as const).map((tabName) => (
                 <button
                   className={bottomTab === tabName ? "active" : ""}
                   key={tabName}
@@ -262,28 +248,27 @@ export function App() {
               ))}
             </div>
             <div className="asset-toolbar">
-              <button onClick={() => spawn("box")}><Box size={14} /> Rigid Box</button>
-              <button onClick={() => spawn("sphere")}><Circle size={14} /> Sphere</button>
-              <button onClick={() => spawn("cylinder")}><Database size={14} /> Cylinder</button>
-              <button onClick={() => spawn("robot")}><Bot size={14} /> Robot Part</button>
-              <button onClick={runAssemblyWorkflow}><Sparkles size={14} /> Assemble Humanoid</button>
+              <button onClick={() => runAssemblyWorkflow("humanoid")}><Sparkles size={14} /> Assemble Humanoid</button>
+              <button onClick={() => runAssemblyWorkflow("nova")}><Bot size={14} /> Assemble Nova Carter</button>
               <div className="spacer" />
+              <button onClick={() => spawn("box")}><Box size={14} /> Box</button>
+              <button onClick={() => spawn("sphere")}><Circle size={14} /> Sphere</button>
               <button onClick={() => setIsPlaying((value) => !value)}>
                 {isPlaying ? <Pause size={14} /> : <Play size={14} />}
                 {isPlaying ? "Pause" : "Play"}
               </button>
               <button onClick={() => setResetSignal((value) => value + 1)}><RotateCcw size={14} /> Reset</button>
             </div>
-            {bottomTab === "Robot Assets" && (
+            {bottomTab === "idō Library" && (
               <div className="asset-grid">
-                {(activeTopView === "library" ? humanoidAssets : assets).map((asset) => {
-                  const Icon = "icon" in asset ? asset.icon : Bot;
+                {(activeTopView === "library" ? libraryAssets : quickAssets).map((asset) => {
+                  const Icon = "icon" in asset ? asset.icon : asset.model === "nova" ? Database : Bot;
                   return (
                     <button
                       className="asset-tile"
-                      key={"file" in asset ? asset.file : asset.name}
+                      key={"id" in asset ? asset.id : asset.name}
                       onClick={() => {
-                        if ("file" in asset) {
+                        if ("id" in asset) {
                           selectAsset(asset.label, "library");
                         } else {
                           selectAsset(asset.name, "sandbox");
@@ -294,34 +279,18 @@ export function App() {
                       <div className="asset-preview"><Icon size={24} /></div>
                       <div>
                         <strong>{"label" in asset ? asset.label : asset.name}</strong>
-                        <span>{"group" in asset ? `${asset.group} / STL` : asset.meta}</span>
+                        <span>{"group" in asset ? `${asset.model} / ${asset.group}` : asset.meta}</span>
                       </div>
                     </button>
                   );
                 })}
               </div>
             )}
-            {bottomTab === "Content" && (
-              <div className="panel-readout">
-                <strong>Current view</strong>
-                <span>{activeTopView === "library" ? "idō Library asset browser" : "Live robotics sandbox"}</span>
-              </div>
-            )}
             {bottomTab === "Console" && (
               <div className="panel-readout mono">
                 <span>[luna] {workflowStatus}</span>
-                <span>[stage] {humanoidAssets.length} humanoid mesh assets available</span>
+                <span>[library] {libraryAssets.length} scrambled assets indexed</span>
                 <span>[physics] gravity enabled, rigid body primitives online</span>
-              </div>
-            )}
-            {bottomTab === "Flow" && (
-              <div className="flow-list">
-                {["Index idō Library", "Place pelvis and torso", "Attach legs", "Attach arms", "Attach hands", "Attach head and logo", "Training readiness"].map((step) => (
-                  <div className="flow-step" key={step}>
-                    <Sparkles size={14} />
-                    <span>{step}</span>
-                  </div>
-                ))}
               </div>
             )}
           </section>
@@ -390,15 +359,14 @@ export function App() {
             )}
             {chatTab === "Tools" && (
               <div className="messages tool-list">
-                <button onClick={() => spawn("box")}><Box size={14} /> Spawn rigid box</button>
-                <button onClick={() => spawn("sphere")}><Circle size={14} /> Spawn sphere</button>
-                <button onClick={runAssemblyWorkflow}><Sparkles size={14} /> Run Luna assembly</button>
+                <button onClick={() => runAssemblyWorkflow("humanoid")}><Sparkles size={14} /> Assemble humanoid</button>
+                <button onClick={() => runAssemblyWorkflow("nova")}><Bot size={14} /> Assemble Nova Carter</button>
                 <button onClick={() => setResetSignal((value) => value + 1)}><RotateCcw size={14} /> Reset scene</button>
               </div>
             )}
             {chatTab === "Logs" && (
               <div className="messages mono">
-                <span>[library] idō humanoid assets: {humanoidAssets.length}</span>
+                <span>[library] idō assets: {libraryAssets.length}</span>
                 <span>[workflow] {workflowStatus}</span>
                 <span>[runtime] live canvas ready</span>
               </div>
