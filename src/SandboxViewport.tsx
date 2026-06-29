@@ -98,7 +98,7 @@ export function SandboxViewport({ isPlaying, spawnRequest, resetSignal }: Sandbo
     rim.position.set(-9, 5, -8);
     scene.add(rim);
 
-    const grid = createIsaacGrid();
+    const grid = createMoonshotGrid();
     scene.add(grid);
 
     const groundBody = new CANNON.Body({
@@ -242,7 +242,7 @@ export function SandboxViewport({ isPlaying, spawnRequest, resetSignal }: Sandbo
   return <div className="sandbox-host" ref={hostRef} />;
 }
 
-function createIsaacGrid() {
+function createMoonshotGrid() {
   const group = new THREE.Group();
   const size = 72;
   const divisions = 36;

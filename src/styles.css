@@ -74,23 +74,28 @@ button:hover {
 }
 
 .app-chip {
-  width: 118px;
+  width: 188px;
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding-left: 11px;
+  gap: 8px;
+  padding-left: 9px;
   background: #ececec;
-  color: #6d7072;
+  color: #565b5e;
   font-weight: 650;
   clip-path: polygon(0 0, 88% 0, 100% 100%, 0 100%);
 }
 
-.app-corner {
-  width: 16px;
-  height: 16px;
-  border-left: 4px solid #6f7e68;
-  border-top: 4px solid #6f7e68;
-  transform: rotate(45deg);
+.app-chip img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+.app-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .menu {

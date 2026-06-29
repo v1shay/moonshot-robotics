@@ -61,7 +61,7 @@ export function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: "agent",
-      text: "Robotics agent online. I can help configure components, generate motion scripts, and reason about the scene graph.",
+      text: "Luna online. I can help configure components, generate motion scripts, and reason about the scene graph.",
     },
     {
       role: "agent",
@@ -83,7 +83,7 @@ export function App() {
       { role: "user", text: trimmed },
       {
         role: "agent",
-        text: "Queued. I can turn that into a scene command once your robot asset pipeline is connected.",
+        text: "Queued. Luna can turn that into a scene command once your robot asset pipeline is connected.",
       },
     ]);
     setPrompt("");
@@ -93,16 +93,16 @@ export function App() {
     <main className="workbench">
       <header className="titlebar">
         <div className="app-chip">
-          <span className="app-corner" />
-          Isaac Sim
+          <img src="/moonshot-robotics-logo.png" alt="" />
+          <span>Moonshot Robotics</span>
         </div>
         <nav className="menu">
           <span>File</span>
           <span>Edit</span>
           <span>Create</span>
           <span>Window</span>
-          <span>Isaac Utils</span>
-          <span>Isaac Examples</span>
+          <span>Robot Utils</span>
+          <span>Robot Examples</span>
           <span>Replicator</span>
           <span>Tools</span>
           <span>Profiler</span>
@@ -208,18 +208,18 @@ export function App() {
 
           <section className="chat-panel">
             <div className="tabs compact">
-              <button className="active"><MessageSquare size={14} /> Agent</button>
+              <button className="active"><MessageSquare size={14} /> Luna</button>
               <button><Settings size={14} /> Tools</button>
               <button><Terminal size={14} /> Logs</button>
             </div>
             <div className="agent-status">
-              <span><Sparkles size={14} /> Moonshot Robotics Agent</span>
+              <span><Sparkles size={14} /> Luna</span>
               <span className="status-dot">online</span>
             </div>
             <div className="messages">
               {messages.map((message, index) => (
                 <div className={`message ${message.role}`} key={`${message.role}-${index}`}>
-                  <span>{message.role === "agent" ? "Agent" : "You"}</span>
+                  <span>{message.role === "agent" ? "Luna" : "You"}</span>
                   <p>{message.text}</p>
                 </div>
               ))}
@@ -234,7 +234,7 @@ export function App() {
                     sendMessage();
                   }
                 }}
-                placeholder="Ask the agent to inspect, script, or assemble..."
+                placeholder="Ask Luna to inspect, script, or assemble..."
               />
               <button onClick={sendMessage} aria-label="Send message"><Send size={16} /></button>
             </div>
