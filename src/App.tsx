@@ -41,6 +41,7 @@ type ModelSession = {
   id: string;
   title: string;
   model: RobotModel | null;
+  training: boolean;
   messages: ChatMessage[];
   trainingCode: string;
   status: string;
@@ -65,6 +66,7 @@ const initialSession: ModelSession = {
   id: "session-home",
   title: "Sandbox",
   model: null,
+  training: false,
   messages: [],
   trainingCode: "// Ask Luna to build or train a robot.",
   status: "Idle",
@@ -97,6 +99,12 @@ export function App() {
     messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, trainingCode]);
 
+  useEffect(() => {
+    if (!activeSession.model) return;
+    setActiveTopView("sandbox");
+    setWorkflowRequest({ id: Date.now(), model: activeSession.model, training: activeSession.training });
+  }, [activeSessionId]);
+
   const updateSession = (sessionId: string, updater: (session: ModelSession) => ModelSession) => {
     setSessions((current) => current.map((session) => (session.id === sessionId ? updater(session) : session)));
   };
@@ -109,7 +117,7 @@ export function App() {
     updateSession(activeSessionId, (session) => ({ ...session, status }));
   };
 
-  const ensureSession = (model: RobotModel, training: boolean) => {
+  const ensureSession = (model: RobotModel, training: boolean, promptText: string) => {
     if (training) {
       const existing = sessions.find((session) => session.model === model);
       if (existing) {
@@ -118,13 +126,14 @@ export function App() {
       }
     }
     const id = `session-${model}-${Date.now()}`;
-    const title = model === "humanoid" ? "Unitree G1" : model === "nova" ? "Luna Rover" : "Franka Panda";
+    const title = makeSessionTitle(model, promptText);
     setSessions((current) => [
       ...current,
       {
         id,
         title,
         model,
+        training,
         messages: [],
         trainingCode: "// Luna is waiting for the next instruction.",
         status: "Idle",
@@ -145,7 +154,7 @@ export function App() {
     setBottomTab("Console");
     setIsPlaying(true);
     const modelName = model === "humanoid" ? "Unitree G1" : model === "nova" ? "Luna Rover" : training ? "Franka Panda sorting cell" : "Franka Panda arm";
-    updateSession(sessionId, (session) => ({ ...session, status: `Luna assembling ${modelName}` }));
+    updateSession(sessionId, (session) => ({ ...session, model, training, status: `Luna assembling ${modelName}` }));
     setWorkflowRequest({ id: Date.now(), model, training });
     if (training) {
       streamTrainingCode(sessionId, model);
@@ -172,12 +181,15 @@ export function App() {
 
     const shouldAssemble = /\b(assemble|build|construct|generate|make|spawn|create|fabricate|rig|robot|train|training|nova|carter|rover|vehicle|drive|humanoid|biped|walker|unitree|g1|franka|panda|desktop|arm|manipulator|sort|sorting|boxes|pick|place)\b/i.test(trimmed);
     const shouldTrain = /\b(train|training|sort|sorting|boxes|cube|sphere|cylinder|task)\b/i.test(trimmed);
-    const requestedModel: RobotModel = /\b(nova|carter|rover|vehicle|drive|wheeled|mobile)\b/i.test(trimmed)
+    const mentionsModel = /\b(nova|carter|rover|vehicle|drive|wheeled|mobile|franka|panda|desktop|arm|manipulator|humanoid|biped|walker|unitree|g1)\b/i.test(trimmed);
+    const requestedModel: RobotModel = shouldTrain && !mentionsModel && activeSession.model
+      ? activeSession.model
+      : /\b(nova|carter|rover|vehicle|drive|wheeled|mobile)\b/i.test(trimmed)
       ? "nova"
       : /\b(franka|panda|desktop|arm|manipulator|pick|place|sort|sorting|boxes)\b/i.test(trimmed)
         ? "desktop"
         : "humanoid";
-    const targetSessionId = shouldAssemble ? ensureSession(requestedModel, shouldTrain) : activeSessionId;
+    const targetSessionId = shouldAssemble ? ensureSession(requestedModel, shouldTrain, trimmed) : activeSessionId;
     appendMessage(targetSessionId, { role: "user", text: trimmed });
     setPrompt("");
     if (shouldAssemble) {
@@ -543,6 +555,18 @@ function getTrainingCode(model: RobotModel, training = false) {
   }
 
   return `from luna.humanoids import BalancePolicy, WholeBodyController\n\nhumanoid = luna.assemble(\"unitree_g1\", source=\"idō/unitree_g1/g1_with_hands.xml\")\nhumanoid.apply_brand(\"moonshot_robotics\")\ncontroller = WholeBodyController(humanoid)\npolicy = BalancePolicy(task=\"upright_locomotion\", controller=controller)\n\nfor step in range(train_steps):\n    obs = viewport.observe()\n    torques = policy.action(obs)\n    humanoid.apply_torques(torques)\n    reward = upright_stability(obs) + gait_progress(obs)\n    policy.update(obs, torques, reward)\n\nluna.deploy(policy, robot=humanoid)`;
+}
+
+function makeSessionTitle(model: RobotModel, promptText: string) {
+  const generic = model === "humanoid" ? "Humanoid" : model === "nova" ? "Rover" : "Desktop Arm";
+  const cleaned = promptText
+    .replace(/\b(please|can you|make|build|create|generate|train|training|the|a|an|robot|model|to|for)\b/gi, " ")
+    .replace(/[^a-z0-9 ]/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return generic;
+  const words = cleaned.split(" ").slice(0, 3).join(" ");
+  return words.replace(/\b\w/g, (char) => char.toUpperCase()) || generic;
 }
 
 function getPreviewParts(model: RobotModel) {
