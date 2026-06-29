@@ -585,8 +585,37 @@ button:hover {
   min-height: 0;
   overflow: hidden;
   display: grid;
-  grid-template-rows: 30px 35px 170px minmax(0, 1fr) 82px;
+  grid-template-rows: 30px 35px 34px 170px minmax(0, 1fr) 82px;
   background: #444748;
+}
+
+.session-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 4px 7px;
+  background: #333739;
+  border-bottom: 1px solid #25292b;
+}
+
+.session-tabs button {
+  flex: 0 0 auto;
+  height: 24px;
+  min-height: 24px;
+  min-width: 82px;
+  padding: 0 9px;
+  background: #252a2c;
+  border-color: #171b1d;
+  color: #9ea7ab;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.session-tabs button.active {
+  background: #d0d2d3;
+  color: #2d3133;
 }
 
 .agent-status {

@@ -37,6 +37,15 @@ type ChatMessage = {
   };
 };
 
+type ModelSession = {
+  id: string;
+  title: string;
+  model: RobotModel | null;
+  messages: ChatMessage[];
+  trainingCode: string;
+  status: string;
+};
+
 const stageRows = [
   { name: "World (defaultPrim)", type: "Xform", muted: false },
   { name: "Environment", type: "Xform", muted: false },
@@ -52,6 +61,15 @@ const quickAssets = [
   { name: "End Effector", meta: "Gripper mount", icon: Crosshair },
 ];
 
+const initialSession: ModelSession = {
+  id: "session-home",
+  title: "Sandbox",
+  model: null,
+  messages: [],
+  trainingCode: "// Ask Luna to build or train a robot.",
+  status: "Idle",
+};
+
 export function App() {
   const [activeTopView, setActiveTopView] = useState<"sandbox" | "library">("sandbox");
   const [activeTool, setActiveTool] = useState("Select");
@@ -66,30 +84,86 @@ export function App() {
   const [spawnRequest, setSpawnRequest] = useState<{ kind: SpawnKind; id: number } | null>(null);
   const [resetSignal, setResetSignal] = useState(0);
   const [workflowRequest, setWorkflowRequest] = useState<{ id: number; model: RobotModel; training: boolean } | null>(null);
-  const [workflowStatus, setWorkflowStatus] = useState("Idle");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [trainingCode, setTrainingCode] = useState("// Ask Luna to build or train a robot.");
+  const [sessions, setSessions] = useState<ModelSession[]>([initialSession]);
+  const [activeSessionId, setActiveSessionId] = useState(initialSession.id);
   const [prompt, setPrompt] = useState("");
   const messagesRef = useRef<HTMLDivElement>(null);
+  const activeSession = sessions.find((session) => session.id === activeSessionId) ?? sessions[0];
+  const messages = activeSession.messages;
+  const trainingCode = activeSession.trainingCode;
+  const workflowStatus = activeSession.status;
 
   useEffect(() => {
     messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, trainingCode]);
 
+  const updateSession = (sessionId: string, updater: (session: ModelSession) => ModelSession) => {
+    setSessions((current) => current.map((session) => (session.id === sessionId ? updater(session) : session)));
+  };
+
+  const appendMessage = (sessionId: string, message: ChatMessage) => {
+    updateSession(sessionId, (session) => ({ ...session, messages: [...session.messages, message] }));
+  };
+
+  const setSessionStatus = (status: string) => {
+    updateSession(activeSessionId, (session) => ({ ...session, status }));
+  };
+
+  const ensureSession = (model: RobotModel, training: boolean) => {
+    if (training) {
+      const existing = sessions.find((session) => session.model === model);
+      if (existing) {
+        setActiveSessionId(existing.id);
+        return existing.id;
+      }
+    }
+    const id = `session-${model}-${Date.now()}`;
+    const title = model === "humanoid" ? "Unitree G1" : model === "nova" ? "Luna Rover" : "Franka Panda";
+    setSessions((current) => [
+      ...current,
+      {
+        id,
+        title,
+        model,
+        messages: [],
+        trainingCode: "// Luna is waiting for the next instruction.",
+        status: "Idle",
+      },
+    ]);
+    setActiveSessionId(id);
+    return id;
+  };
+
   const spawn = (kind: SpawnKind) => {
     setActiveTopView("sandbox");
-    setWorkflowStatus(`Spawned ${kind}`);
+    setSessionStatus(`Spawned ${kind}`);
     setSpawnRequest({ kind, id: Date.now() });
   };
 
-  const runAssemblyWorkflow = (model: RobotModel, training = false) => {
+  const runAssemblyWorkflow = (model: RobotModel, training = false, sessionId = activeSessionId) => {
     setActiveTopView("sandbox");
     setBottomTab("Console");
     setIsPlaying(true);
     const modelName = model === "humanoid" ? "Unitree G1" : model === "nova" ? "Luna Rover" : training ? "Franka Panda sorting cell" : "Franka Panda arm";
-    setWorkflowStatus(`Luna assembling ${modelName}`);
+    updateSession(sessionId, (session) => ({ ...session, status: `Luna assembling ${modelName}` }));
     setWorkflowRequest({ id: Date.now(), model, training });
-    setTrainingCode(getTrainingCode(model, training));
+    if (training) {
+      streamTrainingCode(sessionId, model);
+    } else {
+      updateSession(sessionId, (session) => ({ ...session, trainingCode: getTrainingCode(model, training) }));
+    }
+  };
+
+  const streamTrainingCode = (sessionId: string, model: RobotModel) => {
+    const code = makeTrainingCode(model);
+    updateSession(sessionId, (session) => ({ ...session, trainingCode: "" }));
+    const chunkSize = 180;
+    for (let offset = 0; offset < code.length; offset += chunkSize) {
+      window.setTimeout(() => {
+        const chunk = code.slice(offset, offset + chunkSize);
+        updateSession(sessionId, (session) => ({ ...session, trainingCode: session.trainingCode + chunk }));
+      }, 120 + (offset / chunkSize) * 95);
+    }
   };
 
   const sendMessage = () => {
@@ -103,31 +177,32 @@ export function App() {
       : /\b(franka|panda|desktop|arm|manipulator|pick|place|sort|sorting|boxes)\b/i.test(trimmed)
         ? "desktop"
         : "humanoid";
-    setMessages((current) => [...current, { role: "user", text: trimmed }]);
+    const targetSessionId = shouldAssemble ? ensureSession(requestedModel, shouldTrain) : activeSessionId;
+    appendMessage(targetSessionId, { role: "user", text: trimmed });
     setPrompt("");
     if (shouldAssemble) {
       const modelName = requestedModel === "humanoid" ? "Unitree G1 humanoid" : requestedModel === "nova" ? "Luna Rover" : shouldTrain ? "Franka Panda sorting cell" : "Franka Panda arm";
-      const parts = getPreviewParts(requestedModel);
+      const parts = shouldTrain ? getTrainingPreviewParts(requestedModel) : getPreviewParts(requestedModel);
       const chatStream: ChatMessage[] = [
         { role: "agent", text: `Thinking... I am reading the viewport, parsing the request, and deciding how to build the ${modelName}.` },
         { role: "agent", text: "Querying idō DB... I am asking the MongoDB-backed index for candidate joints, meshes, materials, and assembly constraints in sequence." },
-        { role: "agent", text: `Found ${parts[0].label}. This is the first structural part I need from idō Library.`, preview: parts[0] },
+        { role: "agent", text: `Found ${parts[0].label}. ${shouldTrain ? "This generated task object is entering the training scene." : "This is the first structural part I need from idō Library."}`, preview: parts[0] },
         { role: "agent", text: `Found ${parts[1].label}. I am matching it against the next socket and constraint set.`, preview: parts[1] },
-        { role: "agent", text: `Found ${parts[2].label}. I am adding it to the build queue before the viewport assembly starts.`, preview: parts[2] },
-        { role: "agent", text: "Assembling pieces... I am streaming the parts into the sandbox sequentially and checking alignment in the viewport." },
+        { role: "agent", text: `Found ${parts[2].label}. I am adding it to the ${shouldTrain ? "curriculum" : "build"} queue before the viewport sequence starts.`, preview: parts[2] },
+        { role: "agent", text: shouldTrain ? "Spawning evaluator agents... early rollouts will fail, then I will tighten rewards until the task completes cleanly." : "Assembling pieces... I am streaming the parts into the sandbox sequentially and checking alignment in the viewport." },
         {
           role: "agent",
           text: requestedModel === "desktop" && shouldTrain
-          ? "Training... I am spawning shapes and bins, then running the sorting policy."
+          ? "Training... I am generating recycling bins and objects, then running pick-place rollouts until the arm sorts cleanly."
           : shouldTrain
-            ? "Training... I am preparing the generated control policy shown above."
+            ? "Training... I am generating the task scene and running staged agents until the motion becomes stable."
             : "Finalizing... I am checking the assembled robot in the viewport and preparing it for the next instruction.",
         },
       ];
       chatStream.forEach((message, index) => {
-        window.setTimeout(() => setMessages((current) => [...current, message]), 250 + index * 520);
+        window.setTimeout(() => appendMessage(targetSessionId, message), 250 + index * 520);
       });
-      window.setTimeout(() => runAssemblyWorkflow(requestedModel, shouldTrain), 1750);
+      window.setTimeout(() => runAssemblyWorkflow(requestedModel, shouldTrain, targetSessionId), 1750);
     }
   };
 
@@ -140,17 +215,14 @@ export function App() {
   ];
 
   const selectAsset = (label: string, source: string) => {
-    setWorkflowStatus(`Selected ${label}`);
-    setMessages((current) => [
-      ...current,
-      {
-        role: "agent",
-        text:
-          source === "library"
-            ? `${label} selected from idō Library. I can place it as part of the correct robot assembly.`
-            : `${label} selected. I can spawn a matching robot placeholder or use it in the assembly flow.`,
-      },
-    ]);
+    setSessionStatus(`Selected ${label}`);
+    appendMessage(activeSessionId, {
+      role: "agent",
+      text:
+        source === "library"
+          ? `${label} selected from idō Library. I can place it as part of the correct robot assembly.`
+          : `${label} selected. I can spawn a matching robot placeholder or use it in the assembly flow.`,
+    });
   };
 
   const stageContent = {
@@ -257,14 +329,14 @@ export function App() {
               <button onClick={() => setCameraMode((value) => (value === "Perspective" ? "Orthographic" : "Perspective"))}>
                 <Cpu size={16} /> {cameraMode}
               </button>
-              <button aria-label="Center robot" onClick={() => setWorkflowStatus("Robot centered in viewport")}>
+              <button aria-label="Center robot" onClick={() => setSessionStatus("Robot centered in viewport")}>
                 <LocateFixed size={18} />
               </button>
               <div className="spacer" />
               <button onClick={() => setStageLights((value) => !value)}>
                 <Lightbulb size={16} /> {stageLights ? "Stage Lights" : "Lights Muted"}
               </button>
-              <button aria-label="Pin viewport" onClick={() => setWorkflowStatus("Viewport pinned")}>
+              <button aria-label="Pin viewport" onClick={() => setSessionStatus("Viewport pinned")}>
                 <LocateFixed size={18} />
               </button>
             </div>
@@ -273,7 +345,7 @@ export function App() {
               spawnRequest={spawnRequest}
               resetSignal={resetSignal}
               workflowRequest={workflowRequest}
-              onWorkflowStatus={setWorkflowStatus}
+              onWorkflowStatus={setSessionStatus}
               stageLights={stageLights}
               cameraMode={cameraMode}
             />
@@ -365,6 +437,18 @@ export function App() {
             <div className="agent-status">
               <span><Sparkles size={14} /> Luna</span>
               <span className="status-dot">online</span>
+            </div>
+            <div className="session-tabs" aria-label="Model sessions">
+              {sessions.map((session) => (
+                <button
+                  key={session.id}
+                  className={session.id === activeSessionId ? "active" : ""}
+                  onClick={() => setActiveSessionId(session.id)}
+                  title={session.status}
+                >
+                  {session.title}
+                </button>
+              ))}
             </div>
             <pre className="code-panel">{trainingCode}</pre>
             {chatTab === "Luna" && (
@@ -483,6 +567,42 @@ function getPreviewParts(model: RobotModel) {
     { label: "Unitree G1 torso actuator frame", file: "/assets/unitree_g1/assets/torso_link_rev_1_0.STL" },
     { label: "Unitree G1 shoulder pitch link", file: "/assets/unitree_g1/assets/left_shoulder_pitch_link.STL" },
   ];
+}
+
+function getTrainingPreviewParts(model: RobotModel) {
+  if (model === "desktop") {
+    return [
+      { label: "Blue recycling bin", file: "/assets/training-demo/robotic-arm-trash-picking/blue_recycling_bin_detailed.stl" },
+      { label: "Green compost bin", file: "/assets/training-demo/robotic-arm-trash-picking/green_compost_bin_detailed.stl" },
+      { label: "Realistic plastic bottle", file: "/assets/training-demo/robotic-arm-trash-picking/realistic_plastic_bottle.stl" },
+    ];
+  }
+
+  if (model === "nova") {
+    return [
+      { label: "Fractured concrete and rebar", file: "/assets/training-demo/rover-debris-training/debris_01_fractured_concrete_rebar.stl" },
+      { label: "Rescue star patient marker", file: "/assets/training-demo/rover-debris-training/rescue_star_people_marker.stl" },
+      { label: "Broken pipe rubble cluster", file: "/assets/training-demo/rover-debris-training/debris_03_broken_pipe_rubble_cluster.stl" },
+    ];
+  }
+
+  return [
+    { label: "Damaged conveyor frame", file: "/assets/training-demo/humanoid-factory-work/01_conveyor_support_frame_damaged.stl" },
+    { label: "Sparking control panel", file: "/assets/training-demo/humanoid-factory-work/07_sparking_control_panel_body_damaged.stl" },
+    { label: "Rain streak mesh cluster", file: "/assets/training-demo/humanoid-factory-work/21_rain_streaks_mesh_cluster.stl" },
+  ];
+}
+
+function makeTrainingCode(model: RobotModel) {
+  const robot = model === "desktop" ? "FrankaPanda" : model === "nova" ? "LunaRover" : "UnitreeG1";
+  const task =
+    model === "desktop"
+      ? "RecycleSort"
+      : model === "nova"
+        ? "DisasterRecoveryNavigation"
+        : "RainFactoryRepair";
+
+  return `// Luna generated C++ training controller\n// target=${robot} task=${task}\n#include <ido/runtime/World.hpp>\n#include <ido/runtime/AssetQuery.hpp>\n#include <ido/control/TrajectoryOptimizer.hpp>\n#include <ido/control/PolicyGradient.hpp>\n#include <ido/vision/SemanticTracker.hpp>\n#include <moonshot/robots/${robot}.hpp>\n\nusing namespace ido;\nusing namespace moonshot;\n\nstruct RewardTerms {\n  float progress = 0.0f;\n  float contact = 0.0f;\n  float stability = 0.0f;\n  float completion = 0.0f;\n};\n\nclass Luna${task}Trainer {\n public:\n  Luna${task}Trainer(World& world, ${robot}& robot)\n      : world_(world), robot_(robot), assets_(world.assetQuery()),\n        tracker_(world.viewportCamera()), optimizer_(robot.kinematicTree()) {}\n\n  void buildScene() {\n    assets_.queryMongo(\"ido.assets\", \"robot=${robot};task=${task};quality=showcase\");\n    assets_.streamSequentially([&](const Asset& asset) {\n      world_.spawn(asset).withCollision(true).withMaterial(asset.suggestedMaterial());\n      world_.waitForViewportFrame();\n    });\n    tracker_.indexScene(world_);\n  }\n\n  void train() {\n    PolicyGradient policy(robot_.actionSpace());\n    for (int episode = 0; episode < 96; ++episode) {\n      world_.resetTaskState();\n      bool failedEarly = episode < 18;\n      for (int step = 0; step < 420; ++step) {\n        Observation obs = tracker_.observe(world_);\n        Action action = failedEarly ? policy.noisyAction(obs, 0.65f) : policy.action(obs);\n        Trajectory trajectory = optimizer_.solve(robot_.state(), action.targetPose, Constraints{\n          .avoidCollisions = true,\n          .smoothJoints = true,\n          .preserveBalance = ${model === "humanoid" ? "true" : "false"},\n          .respectGroundContact = true,\n        });\n        robot_.execute(trajectory);\n        RewardTerms reward = score(obs, action, failedEarly);\n        policy.update(obs, action, reward.progress + reward.contact + reward.stability + reward.completion);\n        if (reward.completion > 0.98f) break;\n      }\n      world_.logEpisode(episode, policy.lastReturn(), failedEarly ? \"exploration\" : \"refined\");\n    }\n    policy.freeze(\"moonshot_${task}_final.policy\");\n  }\n\n private:\n  RewardTerms score(const Observation& obs, const Action& action, bool failedEarly) {\n    RewardTerms r;\n    r.progress = taskProgress(obs);\n    r.contact = cleanContactScore(obs, action);\n    r.stability = robot_.stabilityMargin();\n    r.completion = failedEarly ? r.progress * 0.35f : taskCompletion(obs);\n    return r;\n  }\n\n  World& world_;\n  ${robot}& robot_;\n  AssetQuery assets_;\n  SemanticTracker tracker_;\n  TrajectoryOptimizer optimizer_;\n};\n\nint main() {\n  World world(\"current_viewport\");\n  ${robot} robot = world.spawn${robot}();\n  Luna${task}Trainer trainer(world, robot);\n  trainer.buildScene();\n  trainer.train();\n  world.playFinalPolicy(\"moonshot_${task}_final.policy\");\n  return 0;\n}\n`;
 }
 
 function PartPreview({ label, file }: { label: string; file: string }) {

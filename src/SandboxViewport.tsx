@@ -241,15 +241,17 @@ export function SandboxViewport({
       const startedAt = clock.elapsedTime;
       if (model === "nova") {
         await createNovaCarterAssembly(scene, assemblyMeshes, startedAt);
+        if (training) await createTrainingDemoScene(scene, assemblyMeshes, startedAt + 0.8, model);
         floorAlignAssembly(assemblyMeshes);
         frameAssembly(assemblyMeshes, model);
         prepareReveal(assemblyMeshes);
-        onWorkflowStatus("Luna Rover assembled and ready for training");
+        onWorkflowStatus(training ? "Luna Rover disaster recovery training scene running" : "Luna Rover assembled and ready for training");
         return;
       }
 
       if (model === "desktop") {
         await createFrankaPandaAssembly(scene, assemblyMeshes, startedAt, training);
+        if (training) await createTrainingDemoScene(scene, assemblyMeshes, startedAt + 2.0, model);
         floorAlignAssembly(assemblyMeshes);
         frameAssembly(assemblyMeshes, model);
         prepareReveal(assemblyMeshes);
@@ -258,11 +260,12 @@ export function SandboxViewport({
       }
 
       await createUnitreeG1Assembly(scene, assemblyMeshes, startedAt);
+      if (training) await createTrainingDemoScene(scene, assemblyMeshes, startedAt + 1.2, model);
 
       floorAlignAssembly(assemblyMeshes);
       frameAssembly(assemblyMeshes, model);
       prepareReveal(assemblyMeshes);
-      onWorkflowStatus("Unitree G1 assembled from XML and ready for training");
+      onWorkflowStatus(training ? "Unitree G1 rain factory repair training scene running" : "Unitree G1 assembled from XML and ready for training");
     }
 
     function frameAssembly(items: AssemblyMesh[], model: RobotModel) {
@@ -604,6 +607,68 @@ function scheduleMujocoReveal(
     });
   });
   return model.bodyOrder.length * cadence;
+}
+
+async function createTrainingDemoScene(
+  scene: THREE.Scene,
+  assemblyMeshes: AssemblyMesh[],
+  startedAt: number,
+  model: RobotModel,
+) {
+  const entries =
+    model === "desktop"
+      ? [
+          ["robotic-arm-trash-picking/blue_recycling_bin_detailed.stl", new THREE.Vector3(-1.55, 0, -1.9), 0.72, "#2367a8"],
+          ["robotic-arm-trash-picking/green_compost_bin_detailed.stl", new THREE.Vector3(0, 0, -1.9), 0.72, "#3f8c50"],
+          ["robotic-arm-trash-picking/black_trash_bin_detailed.stl", new THREE.Vector3(1.55, 0, -1.9), 0.72, "#15191b"],
+          ["robotic-arm-trash-picking/realistic_plastic_bottle.stl", new THREE.Vector3(-0.75, 0, 1.05), 0.45, "#9eb9d2"],
+          ["robotic-arm-trash-picking/crinkled_chips_package.stl", new THREE.Vector3(0.05, 0, 1.05), 0.45, "#d0a139"],
+          ["robotic-arm-trash-picking/rotten_banana_realistic.stl", new THREE.Vector3(0.85, 0, 1.05), 0.45, "#8a7a28"],
+        ]
+      : model === "nova"
+        ? [
+            ["rover-debris-training/debris_01_fractured_concrete_rebar.stl", new THREE.Vector3(-1.35, 0, 0.85), 0.75, "#6d7478"],
+            ["rover-debris-training/debris_02_twisted_corrugated_sheet_metal.stl", new THREE.Vector3(0.25, 0, 1.25), 0.72, "#59666a"],
+            ["rover-debris-training/debris_03_broken_pipe_rubble_cluster.stl", new THREE.Vector3(1.25, 0, 0.2), 0.72, "#4c575b"],
+            ["rover-debris-training/rescue_star_people_marker.stl", new THREE.Vector3(-0.35, 0, -1.25), 0.42, "#d0a139"],
+            ["rover-debris-training/rescue_star_people_marker.stl", new THREE.Vector3(1.3, 0, -1.45), 0.38, "#ffd15b"],
+          ]
+        : [
+            ["humanoid-factory-work/23_optional_sandbox_base_pad_with_marks.stl", new THREE.Vector3(0, 0, 0), 1.4, "#2b3032"],
+            ["humanoid-factory-work/01_conveyor_support_frame_damaged.stl", new THREE.Vector3(-1.15, 0, -0.8), 0.88, "#59666a"],
+            ["humanoid-factory-work/02_conveyor_belt_torn_with_ribs.stl", new THREE.Vector3(-1.15, 0.08, -0.8), 0.88, "#202426"],
+            ["humanoid-factory-work/07_sparking_control_panel_body_damaged.stl", new THREE.Vector3(1.05, 0, -0.72), 0.72, "#4c575b"],
+            ["humanoid-factory-work/09_spark_rays_and_burst_cluster.stl", new THREE.Vector3(1.22, 0.55, -0.68), 0.45, "#d0a139"],
+            ["humanoid-factory-work/21_rain_streaks_mesh_cluster.stl", new THREE.Vector3(0, 1.25, 0), 1.3, "#7ba9d6"],
+            ["humanoid-factory-work/22_low_fog_wisps_mesh_cluster.stl", new THREE.Vector3(0.3, 0.02, 0.7), 1.1, "#7f8f94"],
+            ["humanoid-factory-work/14_damaged_parts_crate_with_contents.stl", new THREE.Vector3(0.95, 0, 0.85), 0.62, "#7a5b36"],
+          ];
+
+  for (let index = 0; index < entries.length; index += 1) {
+    const [file, position, targetSize, color] = entries[index] as [string, THREE.Vector3, number, string];
+    const object = await loadTrainingStl(`/assets/training-demo/${file}`, targetSize, color);
+    object.position.copy(position);
+    scene.add(object);
+    assemblyMeshes.push({ mesh: object, startTime: startedAt + index * 0.22, duration: 0.34 });
+  }
+}
+
+async function loadTrainingStl(file: string, targetSize: number, color: string) {
+  const geometry = await new STLLoader().loadAsync(file);
+  geometry.computeVertexNormals();
+  geometry.center();
+  geometry.computeBoundingBox();
+  const size = new THREE.Vector3();
+  geometry.boundingBox?.getSize(size);
+  const largest = Math.max(size.x, size.y, size.z, 0.001);
+  geometry.scale(targetSize / largest, targetSize / largest, targetSize / largest);
+  const mesh = new THREE.Mesh(
+    geometry,
+    new THREE.MeshStandardMaterial({ color, roughness: 0.56, metalness: 0.18 }),
+  );
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
 }
 
 async function loadMujocoModel(baseUrl: string, xmlFile: string, displayScale: number): Promise<MujocoModel> {
