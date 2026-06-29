@@ -59,16 +59,8 @@ export function App() {
   const [resetSignal, setResetSignal] = useState(0);
   const [workflowRequest, setWorkflowRequest] = useState<{ id: number; model: RobotModel } | null>(null);
   const [workflowStatus, setWorkflowStatus] = useState("Idle");
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      role: "agent",
-      text: "Luna online. I can help configure components, generate motion scripts, and reason about the scene graph.",
-    },
-    {
-      role: "agent",
-      text: `idō Library indexed ${libraryAssets.length} assets across the humanoid and Nova Carter packages. Ask me to assemble either robot.`,
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [trainingCode, setTrainingCode] = useState("// Ask Luna to build or train a robot.");
   const [prompt, setPrompt] = useState("");
 
   const spawn = (kind: SpawnKind) => {
@@ -81,36 +73,37 @@ export function App() {
     setActiveTopView("sandbox");
     setBottomTab("Console");
     setIsPlaying(true);
-    setWorkflowStatus(`Luna assembling ${model === "humanoid" ? "humanoid" : "Nova Carter"}`);
+    const modelName = model === "humanoid" ? "humanoid" : model === "nova" ? "Nova Carter" : "desktop sorting arm";
+    setWorkflowStatus(`Luna assembling ${modelName}`);
     setWorkflowRequest({ id: Date.now(), model });
-    setMessages((current) => [
-      ...current,
-      {
-        role: "agent",
-        text: `I am assembling the ${model === "humanoid" ? "humanoid robot" : "Nova Carter"} directly from the idō assets. Parts will appear only when I place them.`,
-      },
-    ]);
+    setTrainingCode(getTrainingCode(model));
   };
 
   const sendMessage = () => {
     const trimmed = prompt.trim();
     if (!trimmed) return;
 
-    const shouldAssemble = /\b(assemble|build|robot|train|training|nova|carter|humanoid)\b/i.test(trimmed);
-    const requestedModel: RobotModel = /\b(nova|carter)\b/i.test(trimmed) ? "nova" : "humanoid";
-    setMessages((current) => [
-      ...current,
-      { role: "user", text: trimmed },
-      {
-        role: "agent",
-        text: shouldAssemble
-          ? `Understood. I am assembling the ${requestedModel === "humanoid" ? "humanoid" : "Nova Carter"} from the idō Library.`
-          : "Queued. I can inspect the stage, spawn primitives, or assemble either robot when you ask.",
-      },
-    ]);
+    const shouldAssemble = /\b(assemble|build|robot|train|training|nova|carter|humanoid|desktop|arm|sort|sorting|boxes)\b/i.test(trimmed);
+    const requestedModel: RobotModel = /\b(nova|carter|rover)\b/i.test(trimmed)
+      ? "nova"
+      : /\b(desktop|arm|sort|sorting|boxes)\b/i.test(trimmed)
+        ? "desktop"
+        : "humanoid";
+    setMessages((current) => [...current, { role: "user", text: trimmed }]);
     setPrompt("");
     if (shouldAssemble) {
-      window.setTimeout(() => runAssemblyWorkflow(requestedModel), 80);
+      const modelName = requestedModel === "humanoid" ? "humanoid robot" : requestedModel === "nova" ? "Nova Carter rover" : "desktop sorting arm";
+      [
+        `Thinking... I am reading the viewport, parsing the request, and deciding how to build the ${modelName}.`,
+        "Sourcing from idō Library... I am selecting the required components from the randomized asset set.",
+        "Assembling pieces... I am placing parts into the sandbox one at a time and checking alignment in the viewport.",
+        requestedModel === "desktop"
+          ? "Training... I am spawning shapes and bins, then running the sorting policy."
+          : "Training... I am preparing the generated control policy shown above.",
+      ].forEach((text, index) => {
+        window.setTimeout(() => setMessages((current) => [...current, { role: "agent", text }]), 250 + index * 650);
+      });
+      window.setTimeout(() => runAssemblyWorkflow(requestedModel), 2150);
     }
   };
 
@@ -178,7 +171,29 @@ export function App() {
         </div>
       </header>
 
-      <section className="app-grid">
+      {activeTopView === "library" && (
+        <section className="library-screen">
+          <div className="library-head">
+            <strong>idō Library</strong>
+            <span>{libraryAssets.length} randomized components across humanoid, Nova Carter, and desktop sorting systems</span>
+          </div>
+          <div className="library-grid">
+            {libraryAssets.map((asset) => {
+              const Icon = asset.model === "nova" ? Database : asset.model === "desktop" ? Cpu : Bot;
+              return (
+                <button className="asset-tile" key={asset.id} onClick={() => selectAsset(asset.label, "library")}>
+                  <div className="asset-preview"><Icon size={24} /></div>
+                  <div>
+                    <strong>{asset.label}</strong>
+                    <span>{asset.model} / {asset.group}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+      <section className={`app-grid ${activeTopView === "library" ? "is-hidden" : ""}`}>
         <aside className="tool-rail" aria-label="Viewport tools">
           {toolButtons.map((tool) => {
             const Icon = tool.icon;
@@ -248,8 +263,6 @@ export function App() {
               ))}
             </div>
             <div className="asset-toolbar">
-              <button onClick={() => runAssemblyWorkflow("humanoid")}><Sparkles size={14} /> Assemble Humanoid</button>
-              <button onClick={() => runAssemblyWorkflow("nova")}><Bot size={14} /> Assemble Nova Carter</button>
               <div className="spacer" />
               <button onClick={() => spawn("box")}><Box size={14} /> Box</button>
               <button onClick={() => spawn("sphere")}><Circle size={14} /> Sphere</button>
@@ -347,6 +360,7 @@ export function App() {
               <span><Sparkles size={14} /> Luna</span>
               <span className="status-dot">online</span>
             </div>
+            <pre className="code-panel">{trainingCode}</pre>
             {chatTab === "Luna" && (
               <div className="messages">
                 {messages.map((message, index) => (
@@ -359,8 +373,6 @@ export function App() {
             )}
             {chatTab === "Tools" && (
               <div className="messages tool-list">
-                <button onClick={() => runAssemblyWorkflow("humanoid")}><Sparkles size={14} /> Assemble humanoid</button>
-                <button onClick={() => runAssemblyWorkflow("nova")}><Bot size={14} /> Assemble Nova Carter</button>
                 <button onClick={() => setResetSignal((value) => value + 1)}><RotateCcw size={14} /> Reset scene</button>
               </div>
             )}
@@ -390,4 +402,16 @@ export function App() {
       </section>
     </main>
   );
+}
+
+function getTrainingCode(model: RobotModel) {
+  if (model === "desktop") {
+    return `policy = LunaPolicy(task="shape_sort")\nworld.spawn_shapes(["cube", "sphere", "cylinder"])\nworld.spawn_bins(["cube", "sphere", "cylinder"])\narm = luna.build("desktop_sorting_arm")\nfor step in range(train_steps):\n    obs = viewport.observe()\n    action = policy.pick_place(obs)\n    arm.execute(action)\n    policy.update(reward=bin_match(obs))`;
+  }
+
+  if (model === "nova") {
+    return `rover = luna.assemble("nova_carter")\ntextures.apply(rover, source="idō/nova_carter")\npolicy = RoverPolicy(task="sim_navigation")\nfor step in range(train_steps):\n    obs = viewport.observe()\n    rover.drive(policy.action(obs))\n    policy.update(reward=route_progress(obs))`;
+  }
+
+  return `humanoid = luna.assemble("humanoid")\npolicy = BalancePolicy(task="upright_locomotion")\nfor step in range(train_steps):\n    obs = viewport.observe()\n    torques = policy.action(obs)\n    humanoid.apply(torques)\n    policy.update(reward=upright_stability(obs))`;
 }

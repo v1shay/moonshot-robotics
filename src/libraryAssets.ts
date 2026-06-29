@@ -1,6 +1,6 @@
 import { humanoidAssets } from "./humanoidAssets";
 
-export type RobotModel = "humanoid" | "nova";
+export type RobotModel = "humanoid" | "nova" | "desktop";
 
 export type LibraryAsset = {
   id: string;
@@ -63,7 +63,29 @@ const novaLibraryAssets: LibraryAsset[] = novaFiles.map(([file, group, kind]) =>
   kind,
 }));
 
-export const libraryAssets = shuffleStable([...humanoidLibraryAssets, ...novaLibraryAssets]);
+const desktopLibraryAssets: LibraryAsset[] = [
+  ["desktop_arm_base", "Manipulator"],
+  ["shoulder_servo", "Manipulator"],
+  ["elbow_link", "Manipulator"],
+  ["wrist_pitch", "Manipulator"],
+  ["parallel_gripper", "Manipulator"],
+  ["vision_sensor", "Training"],
+  ["cube_shape", "Task Object"],
+  ["sphere_shape", "Task Object"],
+  ["cylinder_shape", "Task Object"],
+  ["cardboard_bin_a", "Task Bin"],
+  ["cardboard_bin_b", "Task Bin"],
+  ["cardboard_bin_c", "Task Bin"],
+].map(([file, group]) => ({
+  id: `desktop-${file}`,
+  model: "desktop",
+  label: file.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+  group,
+  file,
+  kind: "mesh",
+}));
+
+export const libraryAssets = shuffleStable([...humanoidLibraryAssets, ...novaLibraryAssets, ...desktopLibraryAssets]);
 
 function shuffleStable(items: LibraryAsset[]) {
   return [...items].sort((a, b) => hash(a.id) - hash(b.id));

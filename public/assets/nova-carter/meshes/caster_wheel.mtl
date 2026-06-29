@@ -1,0 +1,10 @@
+# File produced by Open Asset Import Library (http://www.assimp.sf.net)
+# (assimp v5.0.1937526254)
+
+newmtl fronttire_m_01
+Kd 1 1 1
+illum 1
+map_Kd ./materials/textures/fronttire_m_basecolor.png
+bump ./materials/textures/fronttire_m_normal.png
+map_bump ./materials/textures/fronttire_m_normal.png
+

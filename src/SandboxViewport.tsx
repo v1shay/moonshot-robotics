@@ -2,6 +2,8 @@ import * as CANNON from "cannon-es";
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { MTLLoader } from "three/examples/jsm/loaders/MTLLoader.js";
+import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import { humanoidAssets } from "./humanoidAssets";
 import { RobotModel } from "./libraryAssets";
@@ -136,6 +138,7 @@ export function SandboxViewport({
     const dynamic: BodyMesh[] = [];
     const assemblyMeshes: AssemblyMesh[] = [];
     const robot = createRobotAssembly();
+    robot.group.visible = false;
     scene.add(robot.group);
 
     function spawn(kind: SpawnKind) {
@@ -202,10 +205,7 @@ export function SandboxViewport({
         scene.remove(mesh);
       });
       clearAssembly();
-      robot.group.visible = true;
-      spawn("box");
-      spawn("sphere");
-      spawn("cylinder");
+      robot.group.visible = false;
       onWorkflowStatus("Idle");
     }
 
@@ -237,11 +237,20 @@ export function SandboxViewport({
 
       const startedAt = clock.elapsedTime;
       if (model === "nova") {
-        createNovaCarterAssembly(scene, assemblyMeshes, startedAt);
+        await createNovaCarterAssembly(scene, assemblyMeshes, startedAt);
         floorAlignAssembly(assemblyMeshes);
         frameAssembly(assemblyMeshes);
         prepareReveal(assemblyMeshes);
         onWorkflowStatus("Nova Carter assembled and ready for training");
+        return;
+      }
+
+      if (model === "desktop") {
+        createDesktopSortingAssembly(scene, assemblyMeshes, startedAt);
+        floorAlignAssembly(assemblyMeshes);
+        frameAssembly(assemblyMeshes);
+        prepareReveal(assemblyMeshes);
+        onWorkflowStatus("Desktop sorting arm trained on cube, sphere, and cylinder bins");
         return;
       }
 
@@ -267,7 +276,6 @@ export function SandboxViewport({
           mesh.receiveShadow = true;
           mesh.rotation.x = -Math.PI / 2;
           mesh.rotation.z = getAssetRotation(asset.file);
-
           mesh.position.copy(getHumanoidTarget(asset.file));
           scene.add(mesh);
           assemblyMeshes.push({
@@ -402,6 +410,13 @@ function animateAssembly(assemblyMeshes: AssemblyMesh[], elapsed: number) {
     mesh.visible = true;
     const eased = 1 - Math.pow(1 - progress, 3);
     mesh.scale.setScalar(Math.max(0.001, eased));
+    const motion = mesh.userData.motion as { from: THREE.Vector3; to: THREE.Vector3; start: number; duration: number } | undefined;
+    if (motion && elapsed > motion.start) {
+      const t = THREE.MathUtils.clamp((elapsed - motion.start) / motion.duration, 0, 1);
+      const arc = Math.sin(t * Math.PI) * 0.35;
+      mesh.position.lerpVectors(motion.from, motion.to, t);
+      mesh.position.y += arc;
+    }
   });
 }
 
@@ -422,64 +437,96 @@ function floorAlignAssembly(assemblyMeshes: AssemblyMesh[]) {
   const lift = -box.min.y + 0.015;
   assemblyMeshes.forEach(({ mesh }) => {
     mesh.position.y += lift;
+    const motion = mesh.userData.motion as { from: THREE.Vector3; to: THREE.Vector3 } | undefined;
+    if (motion) {
+      motion.from.y += lift;
+      motion.to.y += lift;
+    }
   });
 }
 
-function createNovaCarterAssembly(scene: THREE.Scene, assemblyMeshes: AssemblyMesh[], startedAt: number) {
+async function createNovaCarterAssembly(scene: THREE.Scene, assemblyMeshes: AssemblyMesh[], startedAt: number) {
+  const root = new THREE.Group();
+  root.rotation.x = -Math.PI / 2;
+  root.scale.setScalar(2.6);
+  scene.add(root);
+  assemblyMeshes.push({ mesh: root, startTime: startedAt, duration: 0.45 });
+
+  const chassis = await loadObjWithMaterials("chassis_link.obj", "chassis_link.mtl");
+  root.add(chassis);
+
+  const leftWheel = await loadObjWithMaterials("nova_carter_wheel_left.obj", "nova_carter_wheel_right.mtl");
+  leftWheel.position.set(0, 0.1726, 0.14);
+  leftWheel.rotation.x = -Math.PI / 2;
+  root.add(leftWheel);
+
+  const rightWheel = await loadObjWithMaterials("nova_carter_wheel_right.obj", "nova_carter_wheel_right.mtl");
+  rightWheel.position.set(0, -0.1726, 0.14);
+  rightWheel.rotation.x = -Math.PI / 2;
+  root.add(rightWheel);
+
+  const casterFrame = await loadObjWithMaterials("caster_frame_base.obj", "caster_frame_base.mtl");
+  casterFrame.position.set(-0.47195, 0, 0.22289);
+  casterFrame.rotation.set(-Math.PI / 2, 0, Math.PI / 2);
+  root.add(casterFrame);
+
+  for (const side of [-1, 1]) {
+    const swivel = await loadObjWithMaterials("caster_swivel.obj", "caster_swivel.mtl");
+    swivel.position.set(-0.47195 + side * 0.13225, 0.03119, 0.22289);
+    root.add(swivel);
+
+    const casterWheel = await loadObjWithMaterials("caster_wheel.obj", "caster_wheel.mtl");
+    casterWheel.position.set(-0.58735 + side * 0.13225, 0.0082, 0.26289);
+    casterWheel.rotation.set(Math.PI / 2, -Math.PI / 2, 0);
+    root.add(casterWheel);
+  }
+
+  addMoonshotBadge(root, new THREE.Vector3(0.22, -0.18, 0.37), 0.028);
+  root.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      child.castShadow = true;
+      child.receiveShadow = true;
+    }
+  });
+}
+
+async function loadObjWithMaterials(objFile: string, mtlFile: string) {
+  const basePath = "/assets/nova-carter/meshes/";
+  const materials = await new MTLLoader().setPath(basePath).loadAsync(mtlFile);
+  materials.preload();
+  const object = await new OBJLoader().setMaterials(materials).setPath(basePath).loadAsync(objFile);
+  return object;
+}
+
+function createDesktopSortingAssembly(scene: THREE.Scene, assemblyMeshes: AssemblyMesh[], startedAt: number) {
   const parts: Array<{ mesh: THREE.Object3D; delay: number }> = [];
-  const chassis = new THREE.Mesh(new THREE.BoxGeometry(2.45, 0.72, 1.0), jointMaterial.clone());
-  chassis.position.set(-0.23, 0.42, 0);
-  chassis.rotation.z = -0.03;
-  parts.push({ mesh: chassis, delay: 0 });
+  const arm = createRobotAssembly();
+  arm.group.position.set(0, 0, 0);
+  parts.push({ mesh: arm.group, delay: 0 });
 
-  const frontDeck = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.2, 0.58), darkMetal.clone());
-  frontDeck.position.set(0.74, 0.77, 0);
-  parts.push({ mesh: frontDeck, delay: 0.16 });
-
-  const wheelGeometry = new THREE.CylinderGeometry(0.31, 0.31, 0.16, 48);
-  const leftWheel = new THREE.Mesh(wheelGeometry, makeTireMaterial());
-  leftWheel.position.set(0, 0.16, 0.46);
-  leftWheel.rotation.x = Math.PI / 2;
-  parts.push({ mesh: leftWheel, delay: 0.28 });
-
-  const rightWheel = new THREE.Mesh(wheelGeometry.clone(), makeTireMaterial());
-  rightWheel.position.set(0, 0.16, -0.46);
-  rightWheel.rotation.x = Math.PI / 2;
-  parts.push({ mesh: rightWheel, delay: 0.4 });
-
-  const casterFrame = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.16, 0.62), darkMetal.clone());
-  casterFrame.position.set(-1.18, 0.28, 0);
-  casterFrame.rotation.y = 0.03;
-  parts.push({ mesh: casterFrame, delay: 0.52 });
-
-  const casterY = 0.11;
-  [-1, 1].forEach((side, index) => {
-    const swivel = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.18, 32), bodyMaterial.clone());
-    swivel.position.set(-1.35, 0.2, side * 0.28);
-    swivel.rotation.x = Math.PI / 2;
-    parts.push({ mesh: swivel, delay: 0.66 + index * 0.12 });
-
-    const casterWheel = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.08, 32), makeTireMaterial());
-    casterWheel.position.set(-1.55, casterY, side * 0.28);
-    casterWheel.rotation.z = Math.PI / 2;
-    parts.push({ mesh: casterWheel, delay: 0.82 + index * 0.12 });
+  const boxMaterial = new THREE.MeshStandardMaterial({ color: "#7a5b36", roughness: 0.9, metalness: 0.02 });
+  [-1.2, 0, 1.2].forEach((x, index) => {
+    const bin = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.42, 0.72), boxMaterial.clone());
+    bin.position.set(x, 0.21, -1.3);
+    parts.push({ mesh: bin, delay: 0.35 + index * 0.12 });
   });
 
-  const lidar = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.12, 32), accentMaterial.clone());
-  lidar.position.set(-0.42, 1.03, 0);
-  parts.push({ mesh: lidar, delay: 1.08 });
+  const cube = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.38, 0.38), darkMetal.clone());
+  cube.position.set(-0.65, 0.19, 1.0);
+  cube.userData.motion = { from: cube.position.clone(), to: new THREE.Vector3(-1.2, 0.54, -1.3), start: startedAt + 2.0, duration: 1.2 };
+  parts.push({ mesh: cube, delay: 0.8 });
 
-  [
-    [0.56, 0.86, 0.28],
-    [0.08, 0.86, 0.34],
-    [0.08, 0.86, -0.34],
-    [-0.95, 0.86, 0.28],
-    [-0.95, 0.86, -0.28],
-  ].forEach(([x, y, z], index) => {
-    const sensor = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.1, 0.18), bodyMaterial.clone());
-    sensor.position.set(x, y, z);
-    parts.push({ mesh: sensor, delay: 1.2 + index * 0.08 });
-  });
+  const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.22, 32, 16), bodyMaterial.clone());
+  sphere.position.set(0, 0.22, 1.0);
+  sphere.userData.motion = { from: sphere.position.clone(), to: new THREE.Vector3(0, 0.54, -1.3), start: startedAt + 3.1, duration: 1.2 };
+  parts.push({ mesh: sphere, delay: 0.95 });
+
+  const cylinder = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.21, 0.42, 32), accentMaterial.clone());
+  cylinder.position.set(0.65, 0.21, 1.0);
+  cylinder.userData.motion = { from: cylinder.position.clone(), to: new THREE.Vector3(1.2, 0.54, -1.3), start: startedAt + 4.2, duration: 1.2 };
+  parts.push({ mesh: cylinder, delay: 1.1 });
+
+  addMoonshotBadge(arm.group, new THREE.Vector3(0, 0.38, 0.55), 0.15);
 
   parts.forEach(({ mesh, delay }) => {
     mesh.traverse((child) => {
@@ -495,6 +542,13 @@ function createNovaCarterAssembly(scene: THREE.Scene, assemblyMeshes: AssemblyMe
 
 function makeTireMaterial() {
   return new THREE.MeshStandardMaterial({ color: "#111517", roughness: 0.9, metalness: 0.05 });
+}
+
+function addMoonshotBadge(parent: THREE.Object3D, position: THREE.Vector3, scale: number) {
+  const badge = new THREE.Mesh(new THREE.CylinderGeometry(scale, scale, 0.018, 32), accentMaterial.clone());
+  badge.position.copy(position);
+  badge.rotation.x = Math.PI / 2;
+  parent.add(badge);
 }
 
 function createMoonshotGrid() {

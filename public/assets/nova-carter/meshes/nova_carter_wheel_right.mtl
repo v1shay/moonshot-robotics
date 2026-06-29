@@ -1,0 +1,40 @@
+# File produced by Open Asset Import Library (http://www.assimp.sf.net)
+# (assimp v5.0.1937526254)
+
+newmtl aluminum_wheel_m
+Kd 1 1 1
+illum 1
+map_Kd ./materials/textures/aluminum_wheel_m_basecolor.png
+bump ./materials/textures/aluminum_wheel_m_normal.png
+map_bump ./materials/textures/aluminum_wheel_m_normal.png
+
+newmtl backtire_m
+Kd 1 1 1
+illum 1
+map_Kd ./materials/textures/backtire_m_basecolor.png
+bump ./materials/textures/backtire_m_normal.png
+map_bump ./materials/textures/backtire_m_normal.png
+
+newmtl backwheel_ring_m
+Kd 1 1 1
+illum 1
+map_Kd ./materials/textures/backwheel_ring_m_basecolor.png
+bump ./materials/textures/backwheel_ring_m_normal.png
+map_bump ./materials/textures/backwheel_ring_m_normal.png
+
+newmtl clearplastic_wheel
+Kd 1 1 1
+Ks 1 1 1
+illum 1
+
+newmtl wheel_m
+Kd 1 1 1
+illum 1
+
+newmtl wheelcap_m
+Kd 1 1 1
+illum 1
+map_Kd ./materials/textures/wheelcap_m_basecolor.png
+bump ./materials/textures/wheelcap_m_normal.png
+map_bump ./materials/textures/wheelcap_m_normal.png
+

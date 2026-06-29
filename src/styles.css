@@ -151,6 +151,46 @@ button:hover {
   background: #0e1011;
 }
 
+.app-grid.is-hidden {
+  display: none;
+}
+
+.library-screen {
+  height: calc(100% - 46px);
+  display: grid;
+  grid-template-rows: 54px 1fr;
+  background: #1a1e20;
+}
+
+.library-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 18px;
+  background: #303436;
+  border-bottom: 3px solid #111416;
+}
+
+.library-head strong {
+  font-size: 18px;
+  color: #d7dcde;
+}
+
+.library-head span {
+  color: #9ca5a9;
+  font-weight: 700;
+}
+
+.library-grid {
+  min-height: 0;
+  overflow: auto;
+  padding: 18px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  grid-auto-rows: 86px;
+  gap: 12px;
+}
+
 .tool-rail {
   display: flex;
   flex-direction: column;
@@ -506,7 +546,7 @@ button:hover {
 
 .chat-panel {
   display: grid;
-  grid-template-rows: 30px 35px 1fr 82px;
+  grid-template-rows: 30px 35px 170px 1fr 82px;
   background: #444748;
 }
 
@@ -538,6 +578,18 @@ button:hover {
   overflow: auto;
   padding: 10px;
   background: #3f4243;
+}
+
+.code-panel {
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  background: #171a1c;
+  border-bottom: 1px solid #2a2e30;
+  color: #b8d3c0;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .messages.mono {

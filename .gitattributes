@@ -1,0 +1,2 @@
+public/assets/nova-carter/**/*.obj filter=lfs diff=lfs merge=lfs -text
+public/assets/nova-carter/meshes/materials/textures/*.png filter=lfs diff=lfs merge=lfs -text
