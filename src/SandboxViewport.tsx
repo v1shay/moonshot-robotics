@@ -30,7 +30,7 @@ type SandboxViewportProps = {
   isPlaying: boolean;
   spawnRequest: SpawnRequest | null;
   resetSignal: number;
-  workflowRequest: { id: number; model: RobotModel; training: boolean } | null;
+  workflowRequest: { id: number; model: RobotModel; training: boolean; demo?: boolean } | null;
   assetPreviewRequest: AssetPreviewRequest | null;
   onWorkflowStatus: (status: string) => void;
   stageLights: boolean;
@@ -84,7 +84,7 @@ export function SandboxViewport({
 	  const apiRef = useRef<{
 	    spawn: (kind: SpawnKind) => void;
 	    reset: () => void;
-	    runAssembly: (model: RobotModel, training: boolean) => void;
+	    runAssembly: (model: RobotModel, training: boolean, demo?: boolean) => void;
 	    previewAsset: (request: AssetPreviewRequest) => void;
 	    setStageLights: (enabled: boolean) => void;
 	    setCameraMode: (mode: string) => void;
@@ -254,7 +254,7 @@ export function SandboxViewport({
       });
     }
 
-    async function runAssembly(model: RobotModel, training: boolean) {
+    async function runAssembly(model: RobotModel, training: boolean, demo = false) {
       clearAssembly();
       clearLibraryPreview();
       dynamic.splice(0).forEach(({ body, mesh }) => {
@@ -262,7 +262,7 @@ export function SandboxViewport({
         scene.remove(mesh);
       });
       robot.group.visible = false;
-      onWorkflowStatus(`Luna reading ${model === "humanoid" ? "humanoid worker" : model === "nova" ? "Luna Rover" : "desktop sorting arm"} asset tree`);
+      onWorkflowStatus(`${demo ? "15-minute demo: " : ""}Luna reading ${model === "humanoid" ? "humanoid worker" : model === "nova" ? "Luna Rover" : "desktop sorting arm"} asset tree`);
       frameBuildSlot(model);
 
       const startedAt = clock.elapsedTime;
@@ -272,7 +272,7 @@ export function SandboxViewport({
         floorAlignAssembly(assemblyMeshes);
         frameAssembly(assemblyMeshes, model);
         prepareReveal(assemblyMeshes);
-        onWorkflowStatus(training ? "Luna Rover disaster recovery training scene running" : "Luna Rover assembled and ready for training");
+        onWorkflowStatus(training ? `${demo ? "15-minute demo: " : ""}Luna Rover disaster recovery training scene running` : "Luna Rover assembled and ready for training");
         return;
       }
 
@@ -282,7 +282,7 @@ export function SandboxViewport({
         floorAlignAssembly(assemblyMeshes);
         frameAssembly(assemblyMeshes, model);
         prepareReveal(assemblyMeshes);
-        onWorkflowStatus(training ? "Desktop sorting arm training scene running" : "Desktop sorting arm assembled and ready");
+        onWorkflowStatus(training ? `${demo ? "15-minute demo: " : ""}Desktop sorting arm training scene running` : "Desktop sorting arm assembled and ready");
         return;
       }
 
@@ -292,7 +292,7 @@ export function SandboxViewport({
       floorAlignAssembly(assemblyMeshes);
       frameAssembly(assemblyMeshes, model);
       prepareReveal(assemblyMeshes);
-      onWorkflowStatus(training ? "Humanoid warehouse loading training scene running" : "Humanoid worker assembled and ready for training");
+      onWorkflowStatus(training ? `${demo ? "15-minute demo: " : ""}Humanoid warehouse loading training scene running` : "Humanoid worker assembled and ready for training");
     }
 
     async function previewAsset(request: AssetPreviewRequest) {
@@ -452,7 +452,7 @@ export function SandboxViewport({
 
   useEffect(() => {
     if (workflowRequest) {
-      apiRef.current?.runAssembly(workflowRequest.model, workflowRequest.training);
+      apiRef.current?.runAssembly(workflowRequest.model, workflowRequest.training, workflowRequest.demo);
     }
   }, [workflowRequest]);
 

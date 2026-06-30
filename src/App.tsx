@@ -52,6 +52,7 @@ type ModelSession = {
   trainingCode: string;
   status: string;
   startedAt?: number;
+  demo?: boolean;
 };
 
 const stageRows = [
@@ -84,7 +85,7 @@ export function App() {
   const [isPlaying, setIsPlaying] = useState(true);
   const [spawnRequest, setSpawnRequest] = useState<{ kind: SpawnKind; id: number } | null>(null);
   const [resetSignal, setResetSignal] = useState(0);
-  const [workflowRequest, setWorkflowRequest] = useState<{ id: number; model: RobotModel; training: boolean } | null>(null);
+  const [workflowRequest, setWorkflowRequest] = useState<{ id: number; model: RobotModel; training: boolean; demo?: boolean } | null>(null);
   const [assetPreviewRequest, setAssetPreviewRequest] = useState<AssetPreviewRequest | null>(null);
   const [sessions, setSessions] = useState<ModelSession[]>([initialSession]);
   const [activeSessionId, setActiveSessionId] = useState(initialSession.id);
@@ -110,9 +111,17 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (!("speechSynthesis" in window)) return;
+    window.speechSynthesis.getVoices();
+    const refreshVoices = () => window.speechSynthesis.getVoices();
+    window.speechSynthesis.addEventListener?.("voiceschanged", refreshVoices);
+    return () => window.speechSynthesis.removeEventListener?.("voiceschanged", refreshVoices);
+  }, []);
+
+  useEffect(() => {
     if (!activeSession.model) return;
     setActiveTopView("sandbox");
-    setWorkflowRequest({ id: Date.now(), model: activeSession.model, training: activeSession.training });
+    setWorkflowRequest({ id: Date.now(), model: activeSession.model, training: activeSession.training, demo: activeSession.demo });
   }, [activeSessionId]);
 
   const updateSession = (sessionId: string, updater: (session: ModelSession) => ModelSession) => {
@@ -125,16 +134,18 @@ export function App() {
 
   const appendAgentMessage = (sessionId: string, message: ChatMessage) => {
     appendMessage(sessionId, message);
-    if (speechEnabled && message.text && !message.preview && !message.imagePreview) {
-      speakLuna(message.text);
+    const speechSummary = getSpeechSummary(message);
+    if (speechEnabled && speechSummary) {
+      speakLuna(speechSummary);
     }
   };
 
   const speakLuna = (text: string) => {
     if (!("speechSynthesis" in window)) return;
     const utterance = new SpeechSynthesisUtterance(text.replace(/\.\.\./g, "."));
-    utterance.rate = 0.92;
-    utterance.pitch = 1.02;
+    utterance.voice = getPreferredLunaVoice();
+    utterance.rate = 0.96;
+    utterance.pitch = 1.06;
     utterance.volume = 0.78;
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
@@ -168,7 +179,7 @@ export function App() {
     updateSession(activeSessionId, (session) => ({ ...session, status }));
   };
 
-  const ensureSession = (model: RobotModel, training: boolean, promptText: string) => {
+  const ensureSession = (model: RobotModel, promptText: string) => {
     const id = `session-${model}-${Date.now()}`;
     const title = makeSessionTitle(model, promptText);
     setSessions((current) => [
@@ -193,13 +204,20 @@ export function App() {
     setSpawnRequest({ kind, id: Date.now() });
   };
 
-  const runAssemblyWorkflow = (model: RobotModel, training = false, sessionId = activeSessionId) => {
+  const runAssemblyWorkflow = (model: RobotModel, training = false, sessionId = activeSessionId, demo = false) => {
     setActiveTopView("sandbox");
     setBottomTab("Console");
     setIsPlaying(true);
     const modelName = model === "humanoid" ? "humanoid worker" : model === "nova" ? "Luna Rover" : training ? "desktop sorting cell" : "desktop arm";
-    updateSession(sessionId, (session) => ({ ...session, model, training, startedAt: Date.now(), status: `Luna assembling ${modelName}` }));
-    setWorkflowRequest({ id: Date.now(), model, training });
+    updateSession(sessionId, (session) => ({
+      ...session,
+      model,
+      training,
+      demo,
+      startedAt: Date.now(),
+      status: demo ? `Luna running 15-minute timelapse for ${modelName}` : `Luna assembling ${modelName}`,
+    }));
+    setWorkflowRequest({ id: Date.now(), model, training, demo });
     if (training) {
       streamTrainingCode(sessionId, model);
     } else {
@@ -223,26 +241,31 @@ export function App() {
     const trimmed = prompt.trim();
     if (!trimmed) return;
 
-    const shouldAssemble = /\b(assemble|build|construct|generate|make|spawn|create|fabricate|rig|robot|train|training|nova|carter|rover|vehicle|drive|humanoid|biped|walker|unitree|g1|franka|panda|desktop|arm|manipulator|sort|sorting|boxes|pick|place)\b/i.test(trimmed);
-    const shouldTrain = /\b(train|training|sort|sorting|boxes|cube|sphere|cylinder|task)\b/i.test(trimmed);
-    const mentionsModel = /\b(nova|carter|rover|vehicle|drive|wheeled|mobile|franka|panda|desktop|arm|manipulator|humanoid|biped|walker|unitree|g1)\b/i.test(trimmed);
+    const demoMode = /(^|\s)--demo(\s|$)/i.test(trimmed);
+    const commandText = trimmed.replace(/(^|\s)--demo(\s|$)/gi, " ").replace(/\s+/g, " ").trim();
+    const promptForRouting = commandText || trimmed;
+    const shouldAssemble = /\b(assemble|build|construct|generate|make|spawn|create|fabricate|rig|robot|train|training|nova|carter|rover|vehicle|drive|humanoid|biped|walker|unitree|g1|franka|panda|desktop|arm|manipulator|sort|sorting|boxes|pick|place|disaster|recovery|warehouse|recycle|recycling)\b/i.test(promptForRouting);
+    const shouldTrain = demoMode || /\b(train|training|sort|sorting|boxes|cube|sphere|cylinder|task|disaster|recovery|warehouse|recycle|recycling)\b/i.test(promptForRouting);
+    const mentionsModel = /\b(nova|carter|rover|vehicle|drive|wheeled|mobile|franka|panda|desktop|arm|manipulator|humanoid|biped|walker|unitree|g1)\b/i.test(promptForRouting);
     const requestedModel: RobotModel = shouldTrain && !mentionsModel && activeSession.model
       ? activeSession.model
-      : /\b(nova|carter|rover|vehicle|drive|wheeled|mobile)\b/i.test(trimmed)
+      : /\b(nova|carter|rover|vehicle|drive|wheeled|mobile|disaster|recovery)\b/i.test(promptForRouting)
       ? "nova"
-      : /\b(franka|panda|desktop|arm|manipulator|pick|place|sort|sorting|boxes)\b/i.test(trimmed)
+      : /\b(franka|panda|desktop|arm|manipulator|pick|place|sort|sorting|boxes|recycle|recycling)\b/i.test(promptForRouting)
         ? "desktop"
         : "humanoid";
-    const targetSessionId = shouldAssemble ? ensureSession(requestedModel, shouldTrain, trimmed) : activeSessionId;
+    const targetSessionId = shouldAssemble && !shouldTrain ? ensureSession(requestedModel, promptForRouting) : activeSessionId;
     appendMessage(targetSessionId, { role: "user", text: trimmed });
     setPrompt("");
     if (shouldAssemble) {
-      setResetSignal((value) => value + 1);
-      setWorkflowRequest(null);
+      if (!shouldTrain) {
+        setResetSignal((value) => value + 1);
+        setWorkflowRequest(null);
+      }
       const modelName = requestedModel === "humanoid" ? "humanoid worker" : requestedModel === "nova" ? "Luna Rover" : shouldTrain ? "desktop sorting cell" : "desktop arm";
       const parts = shouldTrain ? getTrainingPreviewParts(requestedModel) : getPreviewParts(requestedModel);
       const chatStream: ChatMessage[] = [
-        { role: "agent", text: `Thinking... the request points to ${modelName}, so I am checking the active sandbox, the needed joints, and the task constraints before I touch the viewport.` },
+        { role: "agent", text: `Thinking... I am reading the request, checking the active sandbox, and deciding what ${modelName} needs before I touch the viewport.` },
         { role: "agent", text: "Searching idō..." },
         { role: "agent", text: "Thinking... I need parts that match the robot body tree, actuator limits, ground contact, and the scene objective. I will source them one by one before rendering anything in the sandbox." },
         { role: "agent", text: "Checking constraints..." },
@@ -266,16 +289,20 @@ export function App() {
         {
           role: "agent",
           text: requestedModel === "desktop" && shouldTrain
-          ? "Training... I am generating recycling bins and objects, then running pick-place rollouts until the arm sorts cleanly."
+          ? demoMode
+            ? "Training... I am running a 15-minute sorting trial as a one-minute timelapse, streaming controller updates while the arm repeats pick-place rollouts."
+            : "Training... I am generating recycling bins and objects, then running pick-place rollouts until the arm sorts cleanly."
           : shouldTrain
-            ? "Training... I am generating the task scene and running staged agents until the motion becomes stable."
+            ? demoMode
+              ? "Training... I am running a 15-minute trial as a one-minute timelapse, keeping the robot motion visible while the evaluator agents score each episode."
+              : "Training... I am generating the task scene and running staged agents until the motion becomes stable."
             : "Finalizing... I am checking the assembled robot in the viewport and preparing it for the next instruction.",
         },
       ];
       chatStream.forEach((message, index) => {
         window.setTimeout(() => appendAgentMessage(targetSessionId, message), 520 + index * 1350);
       });
-      window.setTimeout(() => runAssemblyWorkflow(requestedModel, shouldTrain, targetSessionId), 1700 + chatStream.length * 1350);
+      window.setTimeout(() => runAssemblyWorkflow(requestedModel, shouldTrain, targetSessionId, demoMode), 1700 + chatStream.length * 1350);
     } else {
       window.setTimeout(() => {
         appendAgentMessage(activeSessionId, {
@@ -536,14 +563,17 @@ export function App() {
             <pre className="code-panel">{trainingCode}</pre>
             {chatTab === "Luna" && (
               <div className="messages" ref={messagesRef}>
-                {messages.map((message, index) => (
-                  <div className={`message ${message.role} ${isBufferMessage(message.text) ? "buffering" : ""}`} key={`${message.role}-${index}`}>
-                    <span>{message.role === "agent" ? "Luna" : "You"}</span>
-                    <p>{message.text}</p>
-                    {message.preview && <PartPreview label={message.preview.label} file={message.preview.file} />}
-                    {message.imagePreview && <ImagePreview {...message.imagePreview} />}
-                  </div>
-                ))}
+                {messages.map((message, index) => {
+                  const activeBuffer = index === messages.length - 1 && isBufferMessage(message.text);
+                  return (
+                    <div className={`message ${message.role} ${activeBuffer ? "buffering" : ""}`} key={`${message.role}-${index}`}>
+                      <span>{message.role === "agent" ? "Luna" : "You"}</span>
+                      <p>{message.text}</p>
+                      {message.preview && <PartPreview label={message.preview.label} file={message.preview.file} />}
+                      {message.imagePreview && <ImagePreview {...message.imagePreview} />}
+                    </div>
+                  );
+                })}
               </div>
             )}
             {chatTab === "Tools" && (
@@ -669,32 +699,66 @@ function isBufferMessage(text: string) {
   return /^(thinking|searching|checking|resolving|preparing)/i.test(text.trim()) && text.trim().endsWith("...");
 }
 
+function getPreferredLunaVoice() {
+  if (!("speechSynthesis" in window)) return null;
+  const voices = window.speechSynthesis.getVoices();
+  const preferredNames = /(samantha|ava|allison|susan|victoria|zoe|jenny|aria|natural|neural|google us english|google uk english)/i;
+  return (
+    voices.find((voice) => voice.lang.startsWith("en") && preferredNames.test(voice.name)) ??
+    voices.find((voice) => voice.lang.startsWith("en") && !/compact|robot|novelty/i.test(voice.name)) ??
+    voices.find((voice) => voice.lang.startsWith("en")) ??
+    null
+  );
+}
+
+function getSpeechSummary(message: ChatMessage) {
+  if (message.role !== "agent") return "";
+  if (message.preview) return `I found ${message.preview.label} in idō Library and I am adding it in.`;
+  if (message.imagePreview) return "I am checking the idō index through MongoDB.";
+  const text = message.text.trim();
+  if (!text) return "";
+  if (/^thinking/i.test(text)) return "I am checking the request and planning the next step.";
+  if (/^searching idō/i.test(text)) return "Searching idō Library.";
+  if (/^searching parts/i.test(text)) return "Finding the next robot parts.";
+  if (/^checking constraints/i.test(text)) return "Checking constraints.";
+  if (/^resolving socket fit/i.test(text)) return "Resolving the next socket fit.";
+  if (/^checking material/i.test(text)) return "Checking materials and joint limits.";
+  if (/^preparing final/i.test(text)) return "Preparing the viewport render.";
+  if (/^spawning evaluator/i.test(text)) return "Starting evaluator agents.";
+  if (/^training/i.test(text)) return "Training is starting in the sandbox.";
+  if (/^assembling/i.test(text)) return "I am assembling the sourced parts now.";
+  if (/^finalizing/i.test(text)) return "Final checks are running.";
+  return text.length > 120 ? `${text.slice(0, 116).trim()}...` : text;
+}
+
 function getSimulationHud(session: ModelSession, now: number) {
   if (!session.training || !session.model || !session.startedAt) return null;
   const elapsed = Math.max(0, (now - session.startedAt) / 1000);
-  const episode = Math.floor(elapsed / 12) + 1;
-  const timer = formatTimer(elapsed % 60);
+  const demoSeconds = session.demo ? Math.max(0, 900 - Math.min(elapsed, 60) * 15) : 0;
+  const episode = session.demo ? Math.floor(elapsed / 10) + 1 : Math.floor(elapsed / 12) + 1;
+  const timer = session.demo ? formatCountdown(demoSeconds) : formatTimer(elapsed % 60);
+  const titlePrefix = session.demo ? "15 Minute Demo: " : "";
   if (session.model === "nova") {
-    const pass = episode >= 5;
+    const pass = session.demo ? elapsed >= 52 : episode >= 5;
     return {
-      title: "Disaster Recovery Trial",
+      title: `${titlePrefix}Disaster Recovery Trial`,
       timer,
-      status: pass ? "PASS: 3/3 people marked green under target time" : `Episode ${episode}: avoiding debris and reducing path time`,
+      status: pass ? "PASS: 3/3 people marked green under target time" : `Timelapse episode ${episode}: avoiding debris and reducing path time`,
     };
   }
   if (session.model === "desktop") {
-    const pass = episode >= 6;
+    const pass = session.demo ? elapsed >= 54 : episode >= 6;
     return {
-      title: "Sorting Arm Training",
+      title: `${titlePrefix}Sorting Arm Training`,
       timer,
-      status: pass ? "TRAINED: 3 correct bins repeated" : `Episode ${episode}: bin reward still adjusting`,
+      status: pass ? "TRAINED: 3 correct bins repeated" : `Timelapse episode ${episode}: bin reward still adjusting`,
     };
   }
-  const pass = episode >= 5;
+  const pass = session.demo ? elapsed >= 52 : episode >= 5;
   return {
-    title: "Warehouse Tote Trial",
+    title: `${titlePrefix}Warehouse Tote Trial`,
     timer,
-    status: pass ? "PASS: 3 packages placed before reset" : `Episode ${episode}: speed and handoff reward tuning`,
+    status: pass ? "PASS: 3 packages placed before reset" : `Timelapse episode ${episode}: speed and handoff reward tuning`,
   };
 }
 
@@ -703,6 +767,12 @@ function formatTimer(value: number) {
   const seconds = Math.floor(value % 60);
   const tenths = Math.floor((value % 1) * 10);
   return `${minutes}:${seconds.toString().padStart(2, "0")}.${tenths}`;
+}
+
+function formatCountdown(value: number) {
+  const minutes = Math.floor(value / 60);
+  const seconds = Math.floor(value % 60);
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
 function getSmallTalkReply(promptText: string) {
