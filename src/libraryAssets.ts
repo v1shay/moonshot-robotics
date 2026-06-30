@@ -1,4 +1,4 @@
-export type RobotModel = "humanoid" | "nova" | "desktop";
+export type RobotModel = "humanoid" | "nova" | "desktop" | "robodog" | "soccer";
 
 export type LibraryAsset = {
   id: string;
@@ -155,11 +155,53 @@ const novaFiles = [
   ["wheelcap_m_basecolor.png", "Texture", "texture", "wheel-transport-svgrepo-com.svg"],
 ] as const;
 
+const robodogFiles = [
+  ["spot_arm.xml", "Assembly XML", "instruction", "ai-mi-algorithm-svgrepo-com.svg"],
+  ["scene_arm.xml", "Scene XML", "instruction", "ai-mi-algorithm-svgrepo-com.svg"],
+  ["spot.png", "Reference", "texture", "robot36-svgrepo-com.svg"],
+  ["body_0.obj", "Body", "mesh", "robot36-svgrepo-com.svg"],
+  ["body_1.obj", "Body", "mesh", "robot36-svgrepo-com.svg"],
+  ["front_left_hip.obj", "Leg", "mesh", "robot-leg-svgrepo-com.svg"],
+  ["front_left_upper_leg_0.obj", "Leg", "mesh", "robot-leg-svgrepo-com.svg"],
+  ["front_left_lower_leg.obj", "Leg", "mesh", "robot-leg-svgrepo-com.svg"],
+  ["front_right_hip.obj", "Leg", "mesh", "robot-leg-svgrepo-com.svg"],
+  ["front_right_upper_leg_0.obj", "Leg", "mesh", "robot-leg-svgrepo-com.svg"],
+  ["front_right_lower_leg.obj", "Leg", "mesh", "robot-leg-svgrepo-com.svg"],
+  ["rear_left_hip.obj", "Leg", "mesh", "robot-leg-svgrepo-com.svg"],
+  ["rear_left_upper_leg_0.obj", "Leg", "mesh", "robot-leg-svgrepo-com.svg"],
+  ["rear_left_lower_leg.obj", "Leg", "mesh", "robot-leg-svgrepo-com.svg"],
+  ["rear_right_hip.obj", "Leg", "mesh", "robot-leg-svgrepo-com.svg"],
+  ["rear_right_upper_leg_0.obj", "Leg", "mesh", "robot-leg-svgrepo-com.svg"],
+  ["rear_right_lower_leg.obj", "Leg", "mesh", "robot-leg-svgrepo-com.svg"],
+  ["arm_link_sh0.obj", "Arm", "mesh", "robot-svgrepo-com.svg"],
+  ["arm_link_el0.obj", "Arm", "mesh", "robot-svgrepo-com.svg"],
+  ["arm_link_wr1_0.obj", "Arm", "mesh", "robot-svgrepo-com.svg"],
+] as const;
+
+const soccerFiles = [
+  ["robot_soccer_kit.xml", "Assembly XML", "instruction", "ai-mi-algorithm-svgrepo-com.svg"],
+  ["scene.xml", "Scene XML", "instruction", "ai-mi-algorithm-svgrepo-com.svg"],
+  ["robot_soccer_kit.png", "Reference", "texture", "robot36-svgrepo-com.svg"],
+  ["frame.stl", "Chassis", "mesh", "robot36-svgrepo-com.svg"],
+  ["board.stl", "Electronics", "mesh", "sensor-lab-svgrepo-com.svg"],
+  ["blue1_blue.stl", "Shell", "mesh", "robot36-svgrepo-com.svg"],
+  ["blue1_white.stl", "Shell", "mesh", "robot36-svgrepo-com.svg"],
+  ["wheel1.stl", "Wheel", "mesh", "wheel-transport-svgrepo-com.svg"],
+  ["wheel2.stl", "Wheel", "mesh", "wheel-transport-svgrepo-com.svg"],
+  ["n20.stl", "Motor", "mesh", "robot-svgrepo-com.svg"],
+  ["coil.stl", "Kicker", "mesh", "sensor-lab-svgrepo-com.svg"],
+  ["plunger.stl", "Kicker", "mesh", "sensor-lab-svgrepo-com.svg"],
+  ["kicker_tip_1.stl", "Kicker", "mesh", "sensor-lab-svgrepo-com.svg"],
+  ["kicker_tip_2.stl", "Kicker", "mesh", "sensor-lab-svgrepo-com.svg"],
+] as const;
+
 const humanoidLibraryAssets = mapFiles(unitreeFiles, "humanoid", "Unitree G1", "green");
 const novaLibraryAssets = mapFiles(novaFiles, "nova", "Luna Rover", "blue");
 const desktopLibraryAssets = mapFiles(pandaFiles, "desktop", "Franka Panda", "gold");
+const robodogLibraryAssets = mapFiles(robodogFiles, "robodog", "Robodog", "gold");
+const soccerLibraryAssets = mapFiles(soccerFiles, "soccer", "Robotic Soccer Kit", "blue");
 
-export const libraryAssets = shuffleStable([...humanoidLibraryAssets, ...novaLibraryAssets, ...desktopLibraryAssets, ...makeDummyAssets()]);
+export const libraryAssets = shuffleStable([...humanoidLibraryAssets, ...novaLibraryAssets, ...desktopLibraryAssets, ...robodogLibraryAssets, ...soccerLibraryAssets, ...makeDummyAssets()]);
 
 function mapFiles(
   files: readonly (readonly [string, string, LibraryAsset["kind"], string])[],
@@ -186,6 +228,8 @@ function makeDummyAssets() {
     ["desktop", "Actuator", "gold", "robot-svgrepo-com.svg"],
     ["nova", "Mobility", "blue", "wheel-transport-svgrepo-com.svg"],
     ["desktop", "Sensor", "steel", "sensor-lab-svgrepo-com.svg"],
+    ["robodog", "Quadruped", "gold", "robot36-svgrepo-com.svg"],
+    ["soccer", "Competition", "blue", "wheel-transport-svgrepo-com.svg"],
   ];
   const nouns = ["servo cassette", "torque coupler", "optic rail", "wrist carrier", "load cell", "joint sleeve", "drive hub", "encoder ring", "grip pad", "linear brace", "socket plate", "motor pod"];
   const assets: LibraryAsset[] = [];

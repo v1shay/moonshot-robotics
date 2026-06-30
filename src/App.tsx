@@ -208,7 +208,7 @@ export function App() {
     setActiveTopView("sandbox");
     setBottomTab("Console");
     setIsPlaying(true);
-    const modelName = model === "humanoid" ? "humanoid worker" : model === "nova" ? "Luna Rover" : training ? "desktop sorting cell" : "desktop arm";
+    const modelName = getModelDisplayName(model, training);
     updateSession(sessionId, (session) => ({
       ...session,
       model,
@@ -244,11 +244,15 @@ export function App() {
     const demoMode = /(^|\s)--demo(\s|$)/i.test(trimmed);
     const commandText = trimmed.replace(/(^|\s)--demo(\s|$)/gi, " ").replace(/\s+/g, " ").trim();
     const promptForRouting = commandText || trimmed;
-    const shouldAssemble = /\b(assemble|build|construct|generate|make|spawn|create|fabricate|rig|robot|train|training|nova|carter|rover|vehicle|drive|humanoid|biped|walker|unitree|g1|franka|panda|desktop|arm|manipulator|sort|sorting|boxes|pick|place|disaster|recovery|warehouse|recycle|recycling)\b/i.test(promptForRouting);
+    const shouldAssemble = /\b(assemble|build|construct|generate|make|spawn|create|fabricate|rig|robot|train|training|nova|carter|rover|vehicle|drive|humanoid|biped|walker|unitree|g1|franka|panda|desktop|arm|manipulator|sort|sorting|boxes|pick|place|disaster|recovery|warehouse|recycle|recycling|robodog|robotic dog|quadruped|soccer|soccer kit|robotic soccer kit)\b/i.test(promptForRouting);
     const shouldTrain = demoMode || /\b(train|training|sort|sorting|boxes|cube|sphere|cylinder|task|disaster|recovery|warehouse|recycle|recycling)\b/i.test(promptForRouting);
-    const mentionsModel = /\b(nova|carter|rover|vehicle|drive|wheeled|mobile|franka|panda|desktop|arm|manipulator|humanoid|biped|walker|unitree|g1)\b/i.test(promptForRouting);
+    const mentionsModel = /\b(nova|carter|rover|vehicle|drive|wheeled|mobile|franka|panda|desktop|arm|manipulator|humanoid|biped|walker|unitree|g1|robodog|robotic dog|quadruped|soccer|soccer kit|robotic soccer kit)\b/i.test(promptForRouting);
     const requestedModel: RobotModel = shouldTrain && !mentionsModel && activeSession.model
       ? activeSession.model
+      : /\b(robodog|robotic dog|quadruped)\b/i.test(promptForRouting)
+      ? "robodog"
+      : /\b(soccer|soccer kit|robotic soccer kit)\b/i.test(promptForRouting)
+      ? "soccer"
       : /\b(nova|carter|rover|vehicle|drive|wheeled|mobile|disaster|recovery)\b/i.test(promptForRouting)
       ? "nova"
       : /\b(franka|panda|desktop|arm|manipulator|pick|place|sort|sorting|boxes|recycle|recycling)\b/i.test(promptForRouting)
@@ -262,7 +266,7 @@ export function App() {
         setResetSignal((value) => value + 1);
         setWorkflowRequest(null);
       }
-      const modelName = requestedModel === "humanoid" ? "humanoid worker" : requestedModel === "nova" ? "Luna Rover" : shouldTrain ? "desktop sorting cell" : "desktop arm";
+      const modelName = getModelDisplayName(requestedModel, shouldTrain);
       const parts = shouldTrain ? getTrainingPreviewParts(requestedModel) : getPreviewParts(requestedModel);
       const chatStream: ChatMessage[] = [
         { role: "agent", text: `Thinking... I am reading the request, checking the active sandbox, and deciding what ${modelName} needs before I touch the viewport.` },
@@ -660,6 +664,14 @@ export function App() {
 }
 
 function getTrainingCode(model: RobotModel, training = false) {
+  if (model === "robodog") {
+    return `from luna.sim import World\n\nworld = World(viewport=\"current\")\nrobodog = luna.assemble(\"robodog\", source=\"idō/robodog/spot_arm.xml\")\nrobodog.apply_brand(\"moonshot_robotics\")\nworld.add(robodog)\nviewport.frame(robodog)\nluna.report(\"Robodog assembled for Devpost capture\")`;
+  }
+
+  if (model === "soccer") {
+    return `from luna.sim import World\n\nworld = World(viewport=\"current\")\nkit = luna.assemble(\"robotic_soccer_kit\", source=\"idō/robosoccer/robot_soccer_kit.xml\")\nkit.apply_brand(\"moonshot_robotics\")\nworld.add(kit)\nviewport.frame(kit)\nluna.report(\"Robotic soccer kit assembled for Devpost capture\")`;
+  }
+
   if (model === "desktop") {
     if (!training) {
       return `from luna.sim import World\n\nworld = World(viewport=\"current\")\narm = luna.assemble(\"desktop_sorting_arm\", source=\"idō/requested_arm/body_tree.xml\")\narm.apply_brand(\"moonshot_robotics\")\narm.enable_joint_animation(mode=\"inspection\")\n\nworld.add(arm)\nviewport.frame(arm)\nluna.report(\"Desktop arm assembled from sourced body tree\")`;
@@ -676,7 +688,12 @@ function getTrainingCode(model: RobotModel, training = false) {
 }
 
 function makeSessionTitle(model: RobotModel, promptText: string) {
-  const generic = model === "humanoid" ? "Humanoid" : model === "nova" ? "Rover" : "Desktop Arm";
+  const generic =
+    model === "humanoid" ? "Humanoid"
+    : model === "nova" ? "Rover"
+    : model === "robodog" ? "Robodog"
+    : model === "soccer" ? "Soccer Kit"
+    : "Desktop Arm";
   const cleaned = promptText
     .replace(/\b(please|can you|make|build|create|generate|train|training|the|a|an|robot|model|to|for)\b/gi, " ")
     .replace(/[^a-z0-9 ]/gi, " ")
@@ -688,7 +705,15 @@ function makeSessionTitle(model: RobotModel, promptText: string) {
 }
 
 function displayAssetLabel(asset: LibraryAsset) {
-  return asset.label.replace(/^(Unitree G1|Franka Panda|Luna Rover) /, "");
+  return asset.label.replace(/^(Unitree G1|Franka Panda|Luna Rover|Robodog|Robotic Soccer Kit) /, "");
+}
+
+function getModelDisplayName(model: RobotModel, training = false) {
+  if (model === "humanoid") return "humanoid worker";
+  if (model === "nova") return "Luna Rover";
+  if (model === "robodog") return "robodog";
+  if (model === "soccer") return "robotic soccer kit";
+  return training ? "desktop sorting cell" : "desktop arm";
 }
 
 function isPreviewableAsset(asset: LibraryAsset) {
@@ -785,10 +810,26 @@ function getSmallTalkReply(promptText: string) {
   if (/\b(status|what are you doing|ready)\b/i.test(promptText)) {
     return "I am ready. The current session is isolated, chat history is pinned to this tab, and the canvas will frame the next model before assembly starts.";
   }
-  return "I can answer quick questions, inspect the current sandbox, or start a build/training workflow when you ask for a humanoid worker, Luna Rover, or desktop sorting arm.";
+  return "I can answer quick questions, inspect the current sandbox, or start a build/training workflow when you ask for a humanoid worker, Luna Rover, desktop sorting arm, robodog, or robotic soccer kit.";
 }
 
 function getPreviewParts(model: RobotModel) {
+  if (model === "robodog") {
+    return [
+      { label: "Robodog body shell", file: "/assets/robodog/assets/body_0.obj" },
+      { label: "Robodog upper leg actuator", file: "/assets/robodog/assets/front_left_upper_leg_0.obj" },
+      { label: "Robodog manipulator link", file: "/assets/robodog/assets/arm_link_el0.obj" },
+    ];
+  }
+
+  if (model === "soccer") {
+    return [
+      { label: "Soccer chassis frame", file: "/assets/robosoccer/assets/frame.stl" },
+      { label: "Soccer drive wheel", file: "/assets/robosoccer/assets/wheel1.stl" },
+      { label: "Soccer kicker solenoid", file: "/assets/robosoccer/assets/plunger.stl" },
+    ];
+  }
+
   if (model === "desktop") {
     return [
       { label: "Arm base link", file: "/assets/franka_emika_panda/assets/link0.stl" },
@@ -813,6 +854,8 @@ function getPreviewParts(model: RobotModel) {
 }
 
 function getTrainingPreviewParts(model: RobotModel) {
+  if (model === "robodog" || model === "soccer") return getPreviewParts(model);
+
   if (model === "desktop") {
     return [
       { label: "Blue recycling bin", file: "/assets/training-demo/robotic-arm-trash-picking/blue_recycling_bin_detailed.stl" },
@@ -837,12 +880,21 @@ function getTrainingPreviewParts(model: RobotModel) {
 }
 
 function makeTrainingCode(model: RobotModel) {
-  const robot = model === "desktop" ? "DesktopSorter" : model === "nova" ? "LunaRover" : "WarehouseHumanoid";
+  const robot =
+    model === "desktop" ? "DesktopSorter"
+    : model === "nova" ? "LunaRover"
+    : model === "robodog" ? "Robodog"
+    : model === "soccer" ? "RobotSoccerKit"
+    : "WarehouseHumanoid";
   const task =
     model === "desktop"
       ? "RecycleSort"
       : model === "nova"
         ? "DisasterRecoveryNavigation"
+        : model === "robodog"
+          ? "QuadrupedInspection"
+          : model === "soccer"
+            ? "SoccerKitInspection"
         : "WarehouseToteLoading";
 
   return `// Luna generated C++ training controller\n// target=${robot} task=${task}\n#include <ido/runtime/World.hpp>\n#include <ido/runtime/AssetQuery.hpp>\n#include <ido/control/TrajectoryOptimizer.hpp>\n#include <ido/control/PolicyGradient.hpp>\n#include <ido/vision/SemanticTracker.hpp>\n#include <moonshot/robots/${robot}.hpp>\n\nusing namespace ido;\nusing namespace moonshot;\n\nstruct RewardTerms {\n  float progress = 0.0f;\n  float contact = 0.0f;\n  float stability = 0.0f;\n  float completion = 0.0f;\n};\n\nclass Luna${task}Trainer {\n public:\n  Luna${task}Trainer(World& world, ${robot}& robot)\n      : world_(world), robot_(robot), assets_(world.assetQuery()),\n        tracker_(world.viewportCamera()), optimizer_(robot.kinematicTree()) {}\n\n  void buildScene() {\n    assets_.queryMongo(\"ido.assets\", \"robot=${robot};task=${task};quality=showcase\");\n    assets_.streamSequentially([&](const Asset& asset) {\n      world_.spawn(asset).withCollision(true).withMaterial(asset.suggestedMaterial());\n      world_.waitForViewportFrame();\n    });\n    tracker_.indexScene(world_);\n  }\n\n  void train() {\n    PolicyGradient policy(robot_.actionSpace());\n    for (int episode = 0; episode < 96; ++episode) {\n      world_.resetTaskState();\n      bool failedEarly = episode < 18;\n      for (int step = 0; step < 420; ++step) {\n        Observation obs = tracker_.observe(world_);\n        Action action = failedEarly ? policy.noisyAction(obs, 0.65f) : policy.action(obs);\n        Trajectory trajectory = optimizer_.solve(robot_.state(), action.targetPose, Constraints{\n          .avoidCollisions = true,\n          .smoothJoints = true,\n          .preserveBalance = ${model === "humanoid" ? "true" : "false"},\n          .respectGroundContact = true,\n        });\n        robot_.execute(trajectory);\n        RewardTerms reward = score(obs, action, failedEarly);\n        policy.update(obs, action, reward.progress + reward.contact + reward.stability + reward.completion);\n        if (reward.completion > 0.98f) break;\n      }\n      world_.logEpisode(episode, policy.lastReturn(), failedEarly ? \"exploration\" : \"refined\");\n    }\n    policy.freeze(\"moonshot_${task}_final.policy\");\n  }\n\n private:\n  RewardTerms score(const Observation& obs, const Action& action, bool failedEarly) {\n    RewardTerms r;\n    r.progress = taskProgress(obs);\n    r.contact = cleanContactScore(obs, action);\n    r.stability = robot_.stabilityMargin();\n    r.completion = failedEarly ? r.progress * 0.35f : taskCompletion(obs);\n    return r;\n  }\n\n  World& world_;\n  ${robot}& robot_;\n  AssetQuery assets_;\n  SemanticTracker tracker_;\n  TrajectoryOptimizer optimizer_;\n};\n\nint main() {\n  World world(\"current_viewport\");\n  ${robot} robot = world.spawn${robot}();\n  Luna${task}Trainer trainer(world, robot);\n  trainer.buildScene();\n  trainer.train();\n  world.playFinalPolicy(\"moonshot_${task}_final.policy\");\n  return 0;\n}\n`;

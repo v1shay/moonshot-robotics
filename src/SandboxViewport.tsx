@@ -262,10 +262,28 @@ export function SandboxViewport({
         scene.remove(mesh);
       });
       robot.group.visible = false;
-      onWorkflowStatus(`${demo ? "15-minute demo: " : ""}Luna reading ${model === "humanoid" ? "humanoid worker" : model === "nova" ? "Luna Rover" : "desktop sorting arm"} asset tree`);
+      onWorkflowStatus(`${demo ? "15-minute demo: " : ""}Luna reading ${viewportModelName(model)} asset tree`);
       frameBuildSlot(model);
 
       const startedAt = clock.elapsedTime;
+      if (model === "robodog") {
+        await createStaticMujocoAssembly(scene, assemblyMeshes, startedAt, "/assets/robodog", "spot_arm.xml", 2.28);
+        floorAlignAssembly(assemblyMeshes);
+        frameAssembly(assemblyMeshes, model);
+        prepareReveal(assemblyMeshes);
+        onWorkflowStatus("Robodog assembled and framed for Devpost capture");
+        return;
+      }
+
+      if (model === "soccer") {
+        await createStaticMujocoAssembly(scene, assemblyMeshes, startedAt, "/assets/robosoccer", "robot_soccer_kit.xml", 14);
+        floorAlignAssembly(assemblyMeshes);
+        frameAssembly(assemblyMeshes, model);
+        prepareReveal(assemblyMeshes);
+        onWorkflowStatus("Robotic soccer kit assembled and framed for Devpost capture");
+        return;
+      }
+
       if (model === "nova") {
         await createNovaCarterAssembly(scene, assemblyMeshes, startedAt, training);
         if (training) await createTrainingDemoScene(scene, assemblyMeshes, startedAt + 0.8, model);
@@ -345,8 +363,9 @@ export function SandboxViewport({
       const fitHeightDistance = size.y / (2 * Math.tan(verticalFov / 2));
       const fitWidthDistance = size.x / (2 * Math.tan(horizontalFov / 2));
       const fitDepthDistance = size.z * 0.9;
-      const padding = model === "humanoid" ? 1.24 : model === "desktop" ? 1.08 : 1.28;
-      const distance = Math.max(fitHeightDistance, fitWidthDistance, fitDepthDistance, 1.4) * padding;
+      const padding = model === "humanoid" ? 1.24 : model === "desktop" ? 1.08 : model === "soccer" ? 1.05 : 1.28;
+      const minDistance = model === "soccer" ? 0.42 : model === "robodog" ? 0.9 : 1.4;
+      const distance = Math.max(fitHeightDistance, fitWidthDistance, fitDepthDistance, minDistance) * padding;
       controls.target.copy(center);
       camera.position.copy(center).addScaledVector(direction, distance);
       camera.near = 0.01;
@@ -361,8 +380,12 @@ export function SandboxViewport({
           ? new THREE.Vector3(0, 1.35, 0)
           : model === "desktop"
             ? new THREE.Vector3(0, 1.05, 0)
+            : model === "soccer"
+              ? new THREE.Vector3(0, 0.42, 0)
+              : model === "robodog"
+                ? new THREE.Vector3(0, 0.78, 0)
             : new THREE.Vector3(0, 0.55, 0);
-      const radius = model === "humanoid" ? 2.0 : model === "desktop" ? 1.7 : 1.35;
+      const radius = model === "humanoid" ? 2.0 : model === "desktop" ? 1.7 : model === "robodog" ? 1.7 : model === "soccer" ? 1.15 : 1.35;
       controls.target.copy(center);
       camera.position.set(center.x + radius * 1.12, center.y + radius * 0.72, center.z + radius * 1.18);
       camera.near = 0.01;
@@ -533,6 +556,14 @@ function floorAlignAssembly(assemblyMeshes: AssemblyMesh[]) {
 
 function positiveModulo(value: number, mod: number) {
   return ((value % mod) + mod) % mod;
+}
+
+function viewportModelName(model: RobotModel) {
+  if (model === "humanoid") return "humanoid worker";
+  if (model === "nova") return "Luna Rover";
+  if (model === "desktop") return "desktop sorting arm";
+  if (model === "robodog") return "robodog";
+  return "robotic soccer kit";
 }
 
 function getBaseY(object: THREE.Object3D) {
@@ -739,6 +770,21 @@ async function createFrankaPandaAssembly(
   };
   scene.add(model.group);
   scheduleMujocoReveal(model, assemblyMeshes, startedAt, 0.12);
+}
+
+async function createStaticMujocoAssembly(
+  scene: THREE.Scene,
+  assemblyMeshes: AssemblyMesh[],
+  startedAt: number,
+  baseUrl: string,
+  xmlFile: string,
+  displayScale: number,
+) {
+  const model = await loadMujocoModel(baseUrl, xmlFile, displayScale);
+  model.group.position.set(0, 0, 0);
+  model.group.rotation.z = xmlFile.includes("soccer") ? -0.42 : 0.18;
+  scene.add(model.group);
+  scheduleMujocoReveal(model, assemblyMeshes, startedAt, xmlFile.includes("soccer") ? 0.028 : 0.055);
 }
 
 function scheduleMujocoReveal(
@@ -1114,6 +1160,8 @@ function resolveLibraryAssetUrl(request: AssetPreviewRequest) {
   if (!/\.(obj|stl|STL)$/i.test(request.file)) return null;
   if (request.model === "humanoid") return `/assets/unitree_g1/assets/${request.file}`;
   if (request.model === "desktop") return `/assets/franka_emika_panda/assets/${request.file}`;
+  if (request.model === "robodog") return `/assets/robodog/assets/${request.file}`;
+  if (request.model === "soccer") return `/assets/robosoccer/assets/${request.file}`;
   return `/assets/nova-carter/meshes/${request.file}`;
 }
 
@@ -1170,6 +1218,15 @@ function setObjectOnGround(object: THREE.Object3D, groundY = 0) {
   if (Number.isFinite(box.min.y)) object.position.y += groundY - box.min.y;
 }
 
+/*
+MuJoCo-compatible robot assets are sourced from MuJoCo Menagerie:
+@software{menagerie2022github,
+  author = {Zakka, Kevin and Tassa, Yuval and {MuJoCo Menagerie Contributors}},
+  title = {{MuJoCo Menagerie: A collection of high-quality simulation models for MuJoCo}},
+  url = {http://github.com/google-deepmind/mujoco_menagerie},
+  year = {2022},
+}
+*/
 async function loadMujocoModel(baseUrl: string, xmlFile: string, displayScale: number): Promise<MujocoModel> {
   const xmlText = await fetch(`${baseUrl}/${xmlFile}`).then((response) => {
     if (!response.ok) throw new Error(`Unable to load ${xmlFile}`);
