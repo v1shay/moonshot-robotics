@@ -9,6 +9,13 @@ import { RobotModel } from "./libraryAssets";
 
 export type SpawnKind = "box" | "sphere" | "cylinder" | "robot";
 
+export type AssetPreviewRequest = {
+  id: string;
+  model: RobotModel;
+  file: string;
+  label: string;
+};
+
 type SpawnRequest = {
   kind: SpawnKind;
   id: number;
@@ -24,6 +31,7 @@ type SandboxViewportProps = {
   spawnRequest: SpawnRequest | null;
   resetSignal: number;
   workflowRequest: { id: number; model: RobotModel; training: boolean } | null;
+  assetPreviewRequest: AssetPreviewRequest | null;
   onWorkflowStatus: (status: string) => void;
   stageLights: boolean;
   cameraMode: string;
@@ -66,19 +74,21 @@ export function SandboxViewport({
   spawnRequest,
   resetSignal,
   workflowRequest,
+  assetPreviewRequest,
   onWorkflowStatus,
   stageLights,
   cameraMode,
 }: SandboxViewportProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const playingRef = useRef(isPlaying);
-  const apiRef = useRef<{
-    spawn: (kind: SpawnKind) => void;
-    reset: () => void;
-    runAssembly: (model: RobotModel, training: boolean) => void;
-    setStageLights: (enabled: boolean) => void;
-    setCameraMode: (mode: string) => void;
-  } | null>(null);
+	  const apiRef = useRef<{
+	    spawn: (kind: SpawnKind) => void;
+	    reset: () => void;
+	    runAssembly: (model: RobotModel, training: boolean) => void;
+	    previewAsset: (request: AssetPreviewRequest) => void;
+	    setStageLights: (enabled: boolean) => void;
+	    setCameraMode: (mode: string) => void;
+	  } | null>(null);
 
   useEffect(() => {
     playingRef.current = isPlaying;
@@ -138,6 +148,7 @@ export function SandboxViewport({
 
     const dynamic: BodyMesh[] = [];
     const assemblyMeshes: AssemblyMesh[] = [];
+    let libraryPreview: THREE.Object3D | null = null;
     const robot = createRobotAssembly();
     robot.group.visible = false;
     scene.add(robot.group);
@@ -206,8 +217,23 @@ export function SandboxViewport({
         scene.remove(mesh);
       });
       clearAssembly();
+      clearLibraryPreview();
       robot.group.visible = false;
       onWorkflowStatus("Idle");
+    }
+
+    function clearLibraryPreview() {
+      if (!libraryPreview) return;
+      scene.remove(libraryPreview);
+      libraryPreview.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          const material = child.material;
+          if (Array.isArray(material)) material.forEach((entry) => entry.dispose());
+          else material.dispose();
+        }
+      });
+      libraryPreview = null;
     }
 
     function clearAssembly() {
@@ -230,12 +256,13 @@ export function SandboxViewport({
 
     async function runAssembly(model: RobotModel, training: boolean) {
       clearAssembly();
+      clearLibraryPreview();
       dynamic.splice(0).forEach(({ body, mesh }) => {
         world.removeBody(body);
         scene.remove(mesh);
       });
       robot.group.visible = false;
-      onWorkflowStatus(`Luna reading ${model === "humanoid" ? "Unitree G1 MuJoCo XML" : model === "nova" ? "Luna Rover xacro" : "Franka Panda MuJoCo XML"} assets`);
+      onWorkflowStatus(`Luna reading ${model === "humanoid" ? "humanoid worker" : model === "nova" ? "Luna Rover" : "desktop sorting arm"} asset tree`);
       frameBuildSlot(model);
 
       const startedAt = clock.elapsedTime;
@@ -255,7 +282,7 @@ export function SandboxViewport({
         floorAlignAssembly(assemblyMeshes);
         frameAssembly(assemblyMeshes, model);
         prepareReveal(assemblyMeshes);
-        onWorkflowStatus(training ? "Franka Panda trained on cube, sphere, and cylinder bins" : "Franka Panda assembled from XML and ready");
+        onWorkflowStatus(training ? "Desktop sorting arm training scene running" : "Desktop sorting arm assembled and ready");
         return;
       }
 
@@ -265,7 +292,37 @@ export function SandboxViewport({
       floorAlignAssembly(assemblyMeshes);
       frameAssembly(assemblyMeshes, model);
       prepareReveal(assemblyMeshes);
-      onWorkflowStatus(training ? "Unitree G1 rain factory repair training scene running" : "Unitree G1 assembled from XML and ready for training");
+      onWorkflowStatus(training ? "Humanoid warehouse loading training scene running" : "Humanoid worker assembled and ready for training");
+    }
+
+    async function previewAsset(request: AssetPreviewRequest) {
+      clearLibraryPreview();
+      const url = resolveLibraryAssetUrl(request);
+      if (!url) {
+        onWorkflowStatus(`${request.label} has no viewport mesh attached`);
+        return;
+      }
+      try {
+        const object = await loadPreviewAsset(url);
+        normalizeObjectSize(object, 0.9);
+        object.position.set(-1.35, 0.02, -0.95);
+        setObjectOnGround(object, 0.02);
+        object.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+            if (!child.material) child.material = jointMaterial.clone();
+          }
+        });
+        scene.add(object);
+        libraryPreview = object;
+        controls.target.set(-1.35, 0.38, -0.95);
+        camera.position.set(0.25, 1.1, 0.55);
+        controls.update();
+        onWorkflowStatus(`Previewing ${request.label}`);
+      } catch {
+        onWorkflowStatus(`Unable to preview ${request.label}`);
+      }
     }
 
     function frameAssembly(items: AssemblyMesh[], model: RobotModel) {
@@ -325,7 +382,7 @@ export function SandboxViewport({
       camera.updateProjectionMatrix();
     }
 
-    apiRef.current = { spawn, reset, runAssembly, setStageLights, setCameraMode };
+    apiRef.current = { spawn, reset, runAssembly, previewAsset, setStageLights, setCameraMode };
     setStageLights(stageLights);
     setCameraMode(cameraMode);
     reset();
@@ -398,6 +455,12 @@ export function SandboxViewport({
       apiRef.current?.runAssembly(workflowRequest.model, workflowRequest.training);
     }
   }, [workflowRequest]);
+
+  useEffect(() => {
+    if (assetPreviewRequest) {
+      apiRef.current?.previewAsset(assetPreviewRequest);
+    }
+  }, [assetPreviewRequest]);
 
   useEffect(() => {
     apiRef.current?.setStageLights(stageLights);
@@ -719,16 +782,17 @@ async function createTrainingDemoScene(
     hold?: THREE.Vector3;
     taskStart?: number;
     taskCycle?: number;
-    roverPickup?: number;
-    stretchY?: number;
-  };
+	    roverPickup?: number;
+	    stretchY?: number;
+	    binSlot?: number;
+	  };
   if (model === "desktop") addDesktopSortingTable(scene, assemblyMeshes, startedAt);
   const entries =
     model === "desktop"
       ? [
-          { file: "robotic-arm-trash-picking/blue_recycling_bin_detailed.stl", position: new THREE.Vector3(0.08, 0.34, -0.24), size: 0.36, color: "#2367a8", rotation: new THREE.Euler(-Math.PI / 2, 0, 0.08) },
-          { file: "robotic-arm-trash-picking/green_compost_bin_detailed.stl", position: new THREE.Vector3(0.38, 0.34, -0.27), size: 0.36, color: "#3f8c50", rotation: new THREE.Euler(-Math.PI / 2, 0, 0) },
-          { file: "robotic-arm-trash-picking/black_trash_bin_detailed.stl", position: new THREE.Vector3(0.68, 0.34, -0.24), size: 0.36, color: "#15191b", rotation: new THREE.Euler(-Math.PI / 2, 0, -0.08) },
+	          { file: "robotic-arm-trash-picking/blue_recycling_bin_detailed.stl", position: new THREE.Vector3(0.08, 0.265, -0.24), size: 0.39, color: "#2367a8", rotation: new THREE.Euler(-Math.PI / 2, 0, 0.02), binSlot: 0 },
+	          { file: "robotic-arm-trash-picking/green_compost_bin_detailed.stl", position: new THREE.Vector3(0.38, 0.265, -0.27), size: 0.39, color: "#3f8c50", rotation: new THREE.Euler(-Math.PI / 2, 0, 0), binSlot: 1 },
+	          { file: "robotic-arm-trash-picking/black_trash_bin_detailed.stl", position: new THREE.Vector3(0.68, 0.265, -0.24), size: 0.39, color: "#15191b", rotation: new THREE.Euler(-Math.PI / 2, 0, -0.02), binSlot: 2 },
           { file: "robotic-arm-trash-picking/realistic_plastic_bottle.stl", position: new THREE.Vector3(-0.1, 0.34, 0.2), size: 0.1, color: "#9eb9d2", rotation: new THREE.Euler(0, 0.4, Math.PI / 2), hold: new THREE.Vector3(0.02, 0.58, 0.13), taskTo: new THREE.Vector3(0.08, 0.62, -0.24), taskStart: 2.4, taskCycle: 12 },
           { file: "robotic-arm-trash-picking/crinkled_chips_package.stl", position: new THREE.Vector3(0.04, 0.34, 0.24), size: 0.1, color: "#d0a139", rotation: new THREE.Euler(0, -0.2, 0.4), hold: new THREE.Vector3(0.18, 0.59, 0.12), taskTo: new THREE.Vector3(0.68, 0.62, -0.24), taskStart: 5.2, taskCycle: 12 },
           { file: "robotic-arm-trash-picking/rotten_banana_realistic.stl", position: new THREE.Vector3(0.18, 0.34, 0.18), size: 0.1, color: "#8a7a28", rotation: new THREE.Euler(0, 0.8, 0.15), hold: new THREE.Vector3(0.24, 0.58, 0.1), taskTo: new THREE.Vector3(0.38, 0.62, -0.27), taskStart: 8.0, taskCycle: 12 },
@@ -778,9 +842,12 @@ async function createTrainingDemoScene(
         animateTaskObject(object, time, object.userData.taskMotion);
       };
     }
-    if (model === "nova" && entry.roverPickup != null) {
-      object.userData.animate = (time: number) => animateRoverStar(object, time, startedAt, getBaseY(object), entry.roverPickup!);
-    }
+	    if (model === "nova" && entry.roverPickup != null) {
+	      object.userData.animate = (time: number) => animateRoverStar(object, time, startedAt, getBaseY(object), entry.roverPickup!);
+	    }
+	    if (model === "desktop" && entry.binSlot != null) {
+	      object.userData.animate = (time: number) => animateSortingBin(object, time, startedAt, entry.binSlot!, entry.color);
+	    }
     scene.add(object);
     assemblyMeshes.push({ mesh: object, startTime: startedAt + index * 0.22, duration: 0.34 });
   }
@@ -836,6 +903,28 @@ function createPersonMarker(height: number, color: string) {
   return group;
 }
 
+function animateSortingBin(object: THREE.Object3D, time: number, startedAt: number, slot: number, baseColor: string) {
+  const episode = Math.floor(Math.max(0, time - startedAt) / 10);
+  const local = positiveModulo(time - startedAt, 10) / 10;
+  const activeWindow =
+    slot === 0 ? local > 0.25 && local < 0.38
+    : slot === 2 ? local > 0.5 && local < 0.63
+    : local > 0.74 && local < 0.9;
+  const trained = episode >= 5;
+  const wrongFlash = !trained && activeWindow && (episode + slot) % 3 === 1;
+  const rightFlash = activeWindow && !wrongFlash;
+  object.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    const material = child.material instanceof THREE.MeshStandardMaterial
+      ? child.material
+      : new THREE.MeshStandardMaterial({ color: baseColor, roughness: 0.5, metalness: 0.1 });
+    child.material = material;
+    material.color.set(wrongFlash ? "#ff3b3b" : rightFlash ? "#20ff72" : baseColor);
+    material.emissive.set(wrongFlash ? "#7a0505" : rightFlash ? "#087f31" : "#000000");
+    material.emissiveIntensity = wrongFlash || rightFlash ? 0.75 : 0;
+  });
+}
+
 async function createWarehouseToteLoadingScene(scene: THREE.Scene, assemblyMeshes: AssemblyMesh[], startedAt: number) {
   const base = "/assets/training-demo/humanoid-warehouse/";
   const staticEntries = [
@@ -847,10 +936,13 @@ async function createWarehouseToteLoadingScene(scene: THREE.Scene, assemblyMeshe
   ];
   for (let index = 0; index < staticEntries.length; index += 1) {
     const entry = staticEntries[index];
-    const object = await loadWarehouseStl(`${base}${entry.file}`, entry.size, entry.color);
-    object.position.copy(entry.position);
-    setObjectOnGround(object, entry.position.y);
-    scene.add(object);
+	    const object = await loadWarehouseStl(`${base}${entry.file}`, entry.size, entry.color);
+	    object.position.copy(entry.position);
+	    setObjectOnGround(object, entry.position.y);
+	    if (entry.file === "tote_open_bin.stl") {
+	      object.userData.animate = (time: number) => animateWarehouseTote(object, time, startedAt + 1.5, entry.color);
+	    }
+	    scene.add(object);
     assemblyMeshes.push({ mesh: object, startTime: startedAt + index * 0.14, duration: 0.28 });
   }
 
@@ -967,6 +1059,23 @@ function addWarehouseCriteria(scene: THREE.Scene, assemblyMeshes: AssemblyMesh[]
   assemblyMeshes.push({ mesh: group, startTime: startedAt + 0.8, duration: 0.28 });
 }
 
+function animateWarehouseTote(object: THREE.Object3D, time: number, startedAt: number, baseColor: string) {
+  const episode = Math.floor(Math.max(0, time - startedAt) / 12);
+  const local = positiveModulo(time - startedAt, 12) / 12;
+  const success = episode >= 4 && local > 0.72;
+  const fail = episode < 4 && local > 0.72 && local < 0.88;
+  object.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    const material = child.material instanceof THREE.MeshStandardMaterial
+      ? child.material
+      : new THREE.MeshStandardMaterial({ color: baseColor, roughness: 0.62, metalness: 0.12 });
+    child.material = material;
+    material.color.set(success ? "#24ff78" : fail ? "#d64434" : baseColor);
+    material.emissive.set(success ? "#0b8936" : fail ? "#65160f" : "#000000");
+    material.emissiveIntensity = success || fail ? 0.55 : 0;
+  });
+}
+
 async function loadWarehouseStl(file: string, targetSize: number, color: string) {
   const geometry = await new STLLoader().loadAsync(file);
   geometry.computeVertexNormals();
@@ -999,6 +1108,28 @@ async function loadTrainingAsset(file: string, targetSize: number, color: string
     return object;
   }
   return loadTrainingStl(file, targetSize, color);
+}
+
+function resolveLibraryAssetUrl(request: AssetPreviewRequest) {
+  if (!/\.(obj|stl|STL)$/i.test(request.file)) return null;
+  if (request.model === "humanoid") return `/assets/unitree_g1/assets/${request.file}`;
+  if (request.model === "desktop") return `/assets/franka_emika_panda/assets/${request.file}`;
+  return `/assets/nova-carter/meshes/${request.file}`;
+}
+
+async function loadPreviewAsset(file: string) {
+  if (file.toLowerCase().endsWith(".obj")) {
+    const object = await new OBJLoader().loadAsync(file);
+    object.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.material = new THREE.MeshStandardMaterial({ color: "#8d989d", roughness: 0.48, metalness: 0.42 });
+      }
+    });
+    return object;
+  }
+  const geometry = await new STLLoader().loadAsync(file);
+  geometry.computeVertexNormals();
+  return new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: "#8d989d", roughness: 0.48, metalness: 0.42 }));
 }
 
 async function loadTrainingStl(file: string, targetSize: number, color: string) {
@@ -1248,14 +1379,14 @@ function animateUnitreeG1(
   const stepForward = pulseWindow(local, 0.42, 0.56, 0.72);
   const stepBack = pulseWindow(local, 0.72, 0.84, 0.98);
   const walking = Math.max(stepForward, stepBack);
-  const gait = Math.sin(local * Math.PI * 12) * walking;
+  const gait = Math.sin(local * Math.PI * 12) * walking * 0.38;
 
   if (root) {
     const base = (root.userData.trainingBasePosition as THREE.Vector3 | undefined) ?? root.position.clone();
     root.userData.trainingBasePosition = base;
     root.position.x = base.x + stepForward * 0.1 - stepBack * 0.04;
     root.position.z = base.z - stepForward * 0.13 + stepBack * 0.09;
-    root.position.y = base.y + Math.abs(gait) * 0.012;
+    root.position.y = base.y + Math.abs(gait) * 0.006;
   }
 
   rotateBody(bodies, "waist_yaw_link", "z", transfer * 0.34 - place * 0.08);
@@ -1274,12 +1405,12 @@ function animateUnitreeG1(
   rotateBody(bodies, "right_elbow_link", "y", -0.2 - reach * 0.68 + lift * 0.22 + place * 0.28);
   rotateBody(bodies, "right_wrist_pitch_link", "y", -0.18 - reach * 0.34 + place * 0.3);
   rotateBody(bodies, "right_wrist_yaw_link", "z", transfer * 0.22);
-  rotateBody(bodies, "left_hip_pitch_link", "y", -0.04 + gait * 0.18);
-  rotateBody(bodies, "right_hip_pitch_link", "y", -0.04 - gait * 0.18);
-  rotateBody(bodies, "left_knee_link", "y", 0.06 + Math.max(0, -gait) * 0.22);
-  rotateBody(bodies, "right_knee_link", "y", 0.06 + Math.max(0, gait) * 0.22);
-  rotateBody(bodies, "left_ankle_pitch_link", "y", -gait * 0.08);
-  rotateBody(bodies, "right_ankle_pitch_link", "y", gait * 0.08);
+  rotateBody(bodies, "left_hip_pitch_link", "y", -0.04 + gait * 0.08);
+  rotateBody(bodies, "right_hip_pitch_link", "y", -0.04 - gait * 0.08);
+  rotateBody(bodies, "left_knee_link", "y", 0.06 + Math.max(0, -gait) * 0.1);
+  rotateBody(bodies, "right_knee_link", "y", 0.06 + Math.max(0, gait) * 0.1);
+  rotateBody(bodies, "left_ankle_pitch_link", "y", -gait * 0.035);
+  rotateBody(bodies, "right_ankle_pitch_link", "y", gait * 0.035);
   rotateBody(bodies, "right_hand_thumb_0_link", "y", release > 0 ? 0.08 : -0.72 * active);
   rotateBody(bodies, "right_hand_index_0_link", "z", release > 0 ? 0.04 : 0.92 * active);
   rotateBody(bodies, "right_hand_middle_0_link", "z", release > 0 ? 0.04 : 0.92 * active);

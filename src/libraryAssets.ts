@@ -9,6 +9,7 @@ export type LibraryAsset = {
   kind: "mesh" | "texture" | "instruction";
   icon: string;
   iconTone: "gold" | "blue" | "green" | "steel";
+  real?: boolean;
 };
 
 const iconBase = "/assets/library-asset-svgs";
@@ -158,7 +159,7 @@ const humanoidLibraryAssets = mapFiles(unitreeFiles, "humanoid", "Unitree G1", "
 const novaLibraryAssets = mapFiles(novaFiles, "nova", "Luna Rover", "blue");
 const desktopLibraryAssets = mapFiles(pandaFiles, "desktop", "Franka Panda", "gold");
 
-export const libraryAssets = shuffleStable([...humanoidLibraryAssets, ...novaLibraryAssets, ...desktopLibraryAssets]);
+export const libraryAssets = shuffleStable([...humanoidLibraryAssets, ...novaLibraryAssets, ...desktopLibraryAssets, ...makeDummyAssets()]);
 
 function mapFiles(
   files: readonly (readonly [string, string, LibraryAsset["kind"], string])[],
@@ -175,7 +176,40 @@ function mapFiles(
     kind,
     icon: `${iconBase}/${icon}`,
     iconTone,
+    real: true,
   }));
+}
+
+function makeDummyAssets() {
+  const systems: Array<[RobotModel, string, LibraryAsset["iconTone"], string]> = [
+    ["humanoid", "Kinematic", "green", "robot-leg-svgrepo-com.svg"],
+    ["desktop", "Actuator", "gold", "robot-svgrepo-com.svg"],
+    ["nova", "Mobility", "blue", "wheel-transport-svgrepo-com.svg"],
+    ["desktop", "Sensor", "steel", "sensor-lab-svgrepo-com.svg"],
+  ];
+  const nouns = ["servo cassette", "torque coupler", "optic rail", "wrist carrier", "load cell", "joint sleeve", "drive hub", "encoder ring", "grip pad", "linear brace", "socket plate", "motor pod"];
+  const assets: LibraryAsset[] = [];
+  for (let index = 0; index < 420; index += 1) {
+    const [model, group, iconTone, icon] = systems[index % systems.length];
+    const noun = nouns[index % nouns.length];
+    const id = `ido-generated-${index.toString().padStart(3, "0")}`;
+    assets.push({
+      id,
+      model,
+      label: `${titleCase(noun)} ${String.fromCharCode(65 + (index % 26))}${(index * 7) % 97}`,
+      group,
+      file: id,
+      kind: "mesh",
+      icon: `${iconBase}/${icon}`,
+      iconTone,
+      real: false,
+    });
+  }
+  return assets;
+}
+
+function titleCase(value: string) {
+  return value.replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function labelFromFile(file: string) {

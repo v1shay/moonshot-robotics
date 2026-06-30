@@ -385,19 +385,19 @@ button:hover {
   overflow: auto;
   padding: 13px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(156px, 1fr));
-  grid-auto-rows: 76px;
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  grid-auto-rows: 60px;
+  gap: 7px;
   background: #1a1e20;
 }
 
 .asset-tile {
   display: grid;
-  grid-template-columns: 54px 1fr;
+  grid-template-columns: 42px 1fr;
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: 76px;
+  min-height: 60px;
   background: #222629;
   border: 1px solid #34383a;
   border-radius: 4px;
@@ -412,7 +412,7 @@ button:hover {
 }
 
 .asset-preview {
-  height: 50px;
+  height: 42px;
   border: 1px solid #131618;
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0)),
@@ -424,8 +424,8 @@ button:hover {
 }
 
 .asset-preview img {
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   object-fit: contain;
   filter: invert(75%) sepia(62%) saturate(620%) hue-rotate(3deg) brightness(93%) contrast(88%);
 }
@@ -449,11 +449,45 @@ button:hover {
 
 .asset-tile strong {
   color: #c9d0d2;
-  margin-bottom: 4px;
+  margin-bottom: 0;
+  line-height: 1.18;
 }
 
 .asset-tile span {
-  color: #7f888c;
+  display: none;
+}
+
+.sim-hud {
+  position: absolute;
+  left: 16px;
+  top: 75px;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 3px 10px;
+  min-width: 260px;
+  padding: 8px 10px;
+  border: 1px solid rgba(105, 112, 116, 0.75);
+  background: rgba(28, 32, 34, 0.86);
+  color: #cbd2d4;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+}
+
+.sim-hud span {
+  color: #9ba5a9;
+  font-weight: 800;
+}
+
+.sim-hud strong {
+  color: #d0a139;
+  justify-self: end;
+}
+
+.sim-hud em {
+  grid-column: 1 / -1;
+  color: #8ed97a;
+  font-style: normal;
+  font-weight: 800;
 }
 
 .panel-readout,
@@ -741,6 +775,28 @@ button:hover {
   line-height: 1.35;
   color: #d2d6d7;
   overflow-wrap: anywhere;
+}
+
+.message.buffering {
+  position: relative;
+  overflow: hidden;
+  border-color: #3f474a;
+}
+
+.message.buffering::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(208, 161, 57, 0.14), transparent);
+  animation: shimmer 1.45s infinite;
+  pointer-events: none;
+}
+
+@keyframes shimmer {
+  to {
+    transform: translateX(100%);
+  }
 }
 
 .part-preview {
